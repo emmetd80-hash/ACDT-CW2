@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#Imports
 from __future__ import annotations
 
 import csv
@@ -18,11 +18,8 @@ from urllib.parse import urlparse
 import requests
 import yaml
 
-# ----------------------------
-# FIXED PATHS (as requested)
-# ----------------------------
-DEFAULT_INPUT_EMAIL_CSV = r"C:\Users\Emmet\OneDrive\Level 6\Cloud\ACDT CW2\email_list.csv"
-INPUT_EMAIL_CSV = os.getenv("INPUT_EMAIL_CSV", DEFAULT_INPUT_EMAIL_CSV)
+# Paths
+INPUT_EMAIL_CSV = os.getenv("INPUT_EMAIL_CSV")
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 CONFIG_PATH = SCRIPT_DIR / "config.yml"
@@ -32,9 +29,7 @@ OUTPUT_CSV = Path(os.getenv("OUTPUT_CSV", str(SCRIPT_DIR / "output_result1.csv")
 EMAIL_REGEX = re.compile(r"^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+$")
 
 
-# ----------------------------
-# Logging (structured JSON lines)
-# ----------------------------
+# Logging (structured JSON)
 def setup_logger(level: str) -> logging.Logger:
     logger = logging.getLogger("alc_breach_screener")
     logger.setLevel(getattr(logging, level.upper(), logging.INFO))
@@ -55,9 +50,7 @@ def log_kv(logger: logging.Logger, level: int, msg: str, **fields: Any) -> None:
     logger.log(level, json.dumps(payload, ensure_ascii=False))
 
 
-# ----------------------------
 # Config
-# ----------------------------
 @dataclass(frozen=True)
 class IntelXConfig:
     base_url: str
@@ -121,9 +114,7 @@ def load_config(path: Path) -> Tuple[IntelXConfig, AppConfig]:
     return intelx_cfg, app_cfg
 
 
-# ----------------------------
 # Helpers
-# ----------------------------
 def is_valid_email(email: str) -> bool:
     return bool(EMAIL_REGEX.match(email.strip()))
 
@@ -156,9 +147,7 @@ def extract_source_domain(item: Dict[str, Any]) -> Optional[str]:
     return None
 
 
-# ----------------------------
 # Rate limiter
-# ----------------------------
 class RateLimiter:
     def __init__(self, requests_per_second: float) -> None:
         self.min_interval = 1.0 / max(requests_per_second, 0.0001)
@@ -172,9 +161,7 @@ class RateLimiter:
         self._last = time.monotonic()
 
 
-# ----------------------------
-# IntelX Client
-# ----------------------------
+# IntelX Communication
 class IntelXClient:
     def __init__(self, cfg: IntelXConfig, app: AppConfig, logger: logging.Logger) -> None:
         self.cfg = cfg
@@ -343,9 +330,7 @@ class IntelXClient:
             )
 
 
-# ----------------------------
-# Core screening logic
-# ----------------------------
+# Screening logic
 @dataclass
 class ScreenResult:
     email_address: str
@@ -403,7 +388,6 @@ def screen_email(client: IntelXClient, email: str, logger: logging.Logger) -> Sc
             logging.INFO,
             "email_screened",
             cid=cid,
-            email=email,
             breached=breached,
             sources=len(uniq_sources),
             raw_results=len(records) if isinstance(records, list) else 0,
@@ -419,9 +403,7 @@ def screen_email(client: IntelXClient, email: str, logger: logging.Logger) -> Sc
         client.terminate_search(search_id, correlation_id=cid)
 
 
-# ----------------------------
-# CSV I/O
-# ----------------------------
+# CSV handling 
 def read_emails_from_csv(path: str) -> List[str]:
     if not os.path.exists(path):
         raise FileNotFoundError(f"Input CSV not found: {path}")
@@ -449,19 +431,13 @@ def write_results_csv(path: Path, results: Sequence[ScreenResult]) -> None:
             )
 
 
-# ----------------------------
-# Chart Output (replaces analyst_summary)
-# ----------------------------
+# Chart Output
 def write_breach_chart_png(
     output_path: Path,
     results: Sequence[ScreenResult],
     *,
     top_n: int = 10,
 ) -> None:
-    """
-    Writes a simple bar chart summarising top breach sources/domains
-    (count of affected emails). Saves as PNG to output_path.
-    """
     import matplotlib.pyplot as plt
 
     counts: Dict[str, int] = {}
@@ -490,9 +466,7 @@ def write_breach_chart_png(
     plt.close()
 
 
-# ----------------------------
-# Main (no CLI args)
-# ----------------------------
+# Main 
 def main() -> int:
     intelx_cfg, app_cfg = load_config(CONFIG_PATH)
     logger = setup_logger(app_cfg.log_level)
