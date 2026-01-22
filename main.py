@@ -29,9 +29,7 @@ CONFIG_PATH = SCRIPT_DIR / "config.yml"
 
 OUTPUT_CSV = Path(os.getenv("OUTPUT_CSV", str(SCRIPT_DIR / "output_result1.csv")))
 
-EMAIL_REGEX = re.compile(
-    r"^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+$"
-)
+EMAIL_REGEX = re.compile(r"^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+$")
 
 
 # ----------------------------
@@ -287,7 +285,13 @@ class IntelXClient:
             "terminate": [],
         }
 
-        resp = self._request("POST", "/intelligent/search", json_body=payload, correlation_id=correlation_id)
+        resp = self._request(
+            "POST",
+            "/intelligent/search",
+            json_body=payload,
+            correlation_id=correlation_id,
+        )
+
         if resp.status_code != 200:
             raise RuntimeError(f"Search failed: HTTP {resp.status_code} {resp.text}")
 
@@ -297,7 +301,13 @@ class IntelXClient:
             raise RuntimeError(f"Search response missing id: {data}")
         return search_id
 
-    def fetch_results(self, search_id: str, correlation_id: str, limit: int, offset: int) -> Dict[str, Any]:
+    def fetch_results(
+        self,
+        search_id: str,
+        correlation_id: str,
+        limit: int,
+        offset: int,
+    ) -> Dict[str, Any]:
         resp = self._request(
             "GET",
             "/intelligent/search/result",
@@ -316,9 +326,21 @@ class IntelXClient:
                 json_body={"id": search_id},
                 correlation_id=correlation_id,
             )
-            log_kv(self.logger, logging.INFO, "search_terminated", cid=correlation_id, status=resp.status_code)
+            log_kv(
+                self.logger,
+                logging.INFO,
+                "search_terminated",
+                cid=correlation_id,
+                status=resp.status_code,
+            )
         except Exception as exc:
-            log_kv(self.logger, logging.WARNING, "terminate_failed", cid=correlation_id, error=str(exc))
+            log_kv(
+                self.logger,
+                logging.WARNING,
+                "terminate_failed",
+                cid=correlation_id,
+                error=str(exc),
+            )
 
 
 # ----------------------------
@@ -345,7 +367,12 @@ def screen_email(client: IntelXClient, email: str, logger: logging.Logger) -> Sc
     try:
         for _ in range(client.cfg.result_poll_attempts):
             time.sleep(delay)
-            data = client.fetch_results(search_id, correlation_id=cid, limit=client.cfg.max_results, offset=0)
+            data = client.fetch_results(
+                search_id,
+                correlation_id=cid,
+                limit=client.cfg.max_results,
+                offset=0,
+            )
             last_data = data
             records = data.get("records") or data.get("items") or []
             if isinstance(records, list) and records:
@@ -382,7 +409,11 @@ def screen_email(client: IntelXClient, email: str, logger: logging.Logger) -> Sc
             raw_results=len(records) if isinstance(records, list) else 0,
         )
 
-        return ScreenResult(email_address=email, breached=breached, site_where_breached=uniq_sources)
+        return ScreenResult(
+            email_address=email,
+            breached=breached,
+            site_where_breached=uniq_sources,
+        )
 
     finally:
         client.terminate_search(search_id, correlation_id=cid)
@@ -413,16 +444,23 @@ def write_results_csv(path: Path, results: Sequence[ScreenResult]) -> None:
         writer = csv.writer(f)
         writer.writerow(["email_address", "breached", "site_where_breached"])
         for r in results:
-            writer.writerow([r.email_address, str(bool(r.breached)), ";".join(r.site_where_breached)])
+            writer.writerow(
+                [r.email_address, str(bool(r.breached)), ";".join(r.site_where_breached)]
+            )
 
 
 # ----------------------------
 # Chart Output (replaces analyst_summary)
 # ----------------------------
-def write_breach_chart_png(output_path: Path, results: Sequence[ScreenResult], *, top_n: int = 10) -> None:
+def write_breach_chart_png(
+    output_path: Path,
+    results: Sequence[ScreenResult],
+    *,
+    top_n: int = 10,
+) -> None:
     """
-    Writes a simple bar chart summarising top breach sources/domains (count of affected emails).
-    Saves as PNG to output_path.
+    Writes a simple bar chart summarising top breach sources/domains
+    (count of affected emails). Saves as PNG to output_path.
     """
     import matplotlib.pyplot as plt
 
@@ -495,7 +533,9 @@ def main() -> int:
         except Exception as exc:
             cid = correlation_id_for(email)
             log_kv(logger, logging.ERROR, "screen_failed", cid=cid, email=email, error=str(exc))
-            results.append(ScreenResult(email_address=email, breached=False, site_where_breached=[]))
+            results.append(
+                ScreenResult(email_address=email, breached=False, site_where_breached=[])
+            )
 
     try:
         write_results_csv(OUTPUT_CSV, results)
