@@ -1,0 +1,15 @@
+$env:INTELX_API_KEY="18211fcd-cb24-4343-b2b0-a2d81868adfe"
+
+python "C:\Users\Emmet\OneDrive\Level 6\Cloud\ACDT CW2\main.py"
+
+
+Step 1: cd "C:\Users\Emmet\OneDrive\Level 6\Cloud\ACDT CW2"
+
+Step 2: docker build -t alc-breach-screener:latest .
+
+Step 3: docker run --rm `
+  -e INTELX_API_KEY="YOUR_KEY_HERE" `
+  -e INPUT_EMAIL_CSV="/data/email_list.csv" `
+  -e OUTPUT_CSV="/data/output_result1.csv" `
+  -v "C:\Users\Emmet\OneDrive\Level 6\Cloud\ACDT CW2:/data" `
+  alc-breach-screener:latest

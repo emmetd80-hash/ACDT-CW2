@@ -1,0 +1,33 @@
+intelx:
+  base_url: "https://free.intelx.io"
+
+  # Name of the environment variable that holds the API key (NOT the key itself)
+  api_key_env: "INTELX_API_KEY"
+
+  requests_per_second: 1.0
+
+  timeout_connect: 5
+  timeout_read: 25
+
+  max_retries: 5
+  backoff_initial_seconds: 1.0
+  backoff_max_seconds: 20.0
+  retry_on_status:
+    - 429
+    - 500
+    - 502
+    - 503
+    - 504
+
+  max_results: 40
+  search_timeout_seconds: 0
+  sort: 2
+  lookuplevel: 0
+  buckets: []
+
+  result_poll_attempts: 6
+  result_poll_initial_delay_seconds: 0.5
+
+app:
+  log_level: "INFO"
+  user_agent: "ALC-Breach-Screener/1.0"
