@@ -1,4 +1,4 @@
-#Imports
+# Imports
 from __future__ import annotations
 
 import csv
@@ -403,7 +403,7 @@ def screen_email(client: IntelXClient, email: str, logger: logging.Logger) -> Sc
         client.terminate_search(search_id, correlation_id=cid)
 
 
-# CSV handling 
+# CSV handling
 def read_emails_from_csv(path: str) -> List[str]:
     if not os.path.exists(path):
         raise FileNotFoundError(f"Input CSV not found: {path}")
@@ -466,7 +466,7 @@ def write_breach_chart_png(
     plt.close()
 
 
-# Main 
+# Main
 def main() -> int:
     intelx_cfg, app_cfg = load_config(CONFIG_PATH)
     logger = setup_logger(app_cfg.log_level)
