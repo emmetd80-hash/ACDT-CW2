@@ -1,6 +1,4 @@
 # Imports
-from __future__ import annotations
-
 import csv
 import hashlib
 import json
@@ -17,6 +15,7 @@ from urllib.parse import urlparse
 
 import requests
 import yaml
+import matplotlib.pyplot as plt
 
 # Paths
 INPUT_EMAIL_CSV = os.getenv("INPUT_EMAIL_CSV")
@@ -24,7 +23,7 @@ INPUT_EMAIL_CSV = os.getenv("INPUT_EMAIL_CSV")
 SCRIPT_DIR = Path(__file__).resolve().parent
 CONFIG_PATH = SCRIPT_DIR / "config.yml"
 
-OUTPUT_CSV = Path(os.getenv("OUTPUT_CSV", str(SCRIPT_DIR / "output_result1.csv")))
+OUTPUT_CSV = Path(os.getenv("OUTPUT_CSV", "/data/output_result1.csv"))
 
 EMAIL_REGEX = re.compile(r"^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+$")
 
@@ -207,7 +206,6 @@ class IntelXClient:
                     cid=correlation_id,
                     method=method,
                     url=url,
-                    attempt=attempt,
                 )
 
                 resp = self.session.request(
@@ -251,7 +249,6 @@ class IntelXClient:
                     cid=correlation_id,
                     error=type(exc).__name__,
                     sleep_seconds=round(backoff, 2),
-                    attempt=attempt,
                 )
                 time.sleep(backoff)
                 backoff = min(backoff * 2.0, self.cfg.backoff_max_seconds)
@@ -305,30 +302,6 @@ class IntelXClient:
             raise RuntimeError(f"Result fetch failed: HTTP {resp.status_code} {resp.text}")
         return resp.json()
 
-    def terminate_search(self, search_id: str, correlation_id: str) -> None:
-        try:
-            resp = self._request(
-                "POST",
-                "/intelligent/search/terminate",
-                json_body={"id": search_id},
-                correlation_id=correlation_id,
-            )
-            log_kv(
-                self.logger,
-                logging.INFO,
-                "search_terminated",
-                cid=correlation_id,
-                status=resp.status_code,
-            )
-        except Exception as exc:
-            log_kv(
-                self.logger,
-                logging.WARNING,
-                "terminate_failed",
-                cid=correlation_id,
-                error=str(exc),
-            )
-
 
 # Screening logic
 @dataclass
@@ -349,58 +322,54 @@ def screen_email(client: IntelXClient, email: str, logger: logging.Logger) -> Sc
     delay = client.cfg.result_poll_initial_delay_seconds
     last_data: Dict[str, Any] = {}
 
-    try:
-        for _ in range(client.cfg.result_poll_attempts):
-            time.sleep(delay)
-            data = client.fetch_results(
-                search_id,
-                correlation_id=cid,
-                limit=client.cfg.max_results,
-                offset=0,
-            )
-            last_data = data
-            records = data.get("records") or data.get("items") or []
-            if isinstance(records, list) and records:
-                break
-            delay = min(delay * 2.0, client.cfg.backoff_max_seconds)
-
-        records = last_data.get("records") or last_data.get("items") or []
-        sources: List[str] = []
-
-        if isinstance(records, list):
-            for item in records:
-                if isinstance(item, dict):
-                    dom = extract_source_domain(item)
-                    if dom:
-                        sources.append(dom)
-
-        seen = set()
-        uniq_sources: List[str] = []
-        for s in sources:
-            if s not in seen:
-                seen.add(s)
-                uniq_sources.append(s)
-
-        breached = bool(records) or bool(uniq_sources)
-
-        log_kv(
-            logger,
-            logging.INFO,
-            "email_screened",
-            cid=cid,
-            breached=breached,
-            sources=len(uniq_sources),
-            raw_results=len(records) if isinstance(records, list) else 0,
+    for _ in range(client.cfg.result_poll_attempts):
+        time.sleep(delay)
+        data = client.fetch_results(
+            search_id,
+            correlation_id=cid,
+            limit=client.cfg.max_results,
+            offset=0,
         )
+        last_data = data
+        records = data.get("records") or data.get("items") or []
+        if isinstance(records, list) and records:
+            break
+        delay = min(delay * 2.0, client.cfg.backoff_max_seconds)
 
-        return ScreenResult(
-            email_address=email,
-            breached=breached,
-            site_where_breached=uniq_sources,
-        )
+    records = last_data.get("records") or last_data.get("items") or []
+    sources: List[str] = []
 
-    finally:
-        client.terminate_search(search_id, correlation_id=cid)
+    if isinstance(records, list):
+        for item in records:
+            if isinstance(item, dict):
+                dom = extract_source_domain(item)
+                if dom:
+                    sources.append(dom)
+
+    seen = set()
+    uniq_sources: List[str] = []
+    for s in sources:
+        if s not in seen:
+            seen.add(s)
+            uniq_sources.append(s)
+
+    breached = bool(records) or bool(uniq_sources)
+
+    log_kv(
+        logger,
+        logging.INFO,
+        "email_screened",
+        cid=cid,
+        breached=breached,
+        sources=len(uniq_sources),
+        raw_results=len(records) if isinstance(records, list) else 0,
+    )
+
+    return ScreenResult(
+        email_address=email,
+        breached=breached,
+        site_where_breached=uniq_sources,
+    )
 
 
 # CSV handling
@@ -438,7 +407,6 @@ def write_breach_chart_png(
     *,
     top_n: int = 10,
 ) -> None:
-    import matplotlib.pyplot as plt
 
     counts: Dict[str, int] = {}
     for r in results:
@@ -517,7 +485,7 @@ def main() -> int:
         log_kv(logger, logging.ERROR, "write_output_failed", error=str(exc))
         return 2
 
-    # Create a chart beside the output CSV
+    # Creating chart output 
     chart_path = OUTPUT_CSV.with_name("breach_summary.png")
     try:
         write_breach_chart_png(chart_path, results, top_n=10)

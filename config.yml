@@ -4,7 +4,7 @@ intelx:
   # Name of the environment variable that holds the API key (NOT the key itself)
   api_key_env: "INTELX_API_KEY"
 
-  requests_per_second: 1.0
+  requests_per_second: 2.0
 
   timeout_connect: 5
   timeout_read: 25
