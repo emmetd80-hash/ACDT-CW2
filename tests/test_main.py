@@ -6,11 +6,11 @@ from unittest.mock import Mock
 import pytest
 import requests
 
-# Repo root is one level above /tests
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
 
 import main  # noqa: E402
+
 
 # -----------------------
 # CSV I/O
@@ -18,10 +18,7 @@ import main  # noqa: E402
 def test_read_emails_from_csv_reads_email_address_column(tmp_path: Path):
     csv_path = tmp_path / "emails.csv"
     csv_path.write_text(
-        "email_address\n"
-        "test@example.com\n"
-        "not-an-email\n"
-        "alice@example.org\n",
+        "email_address\n" "test@example.com\n" "not-an-email\n" "alice@example.org\n",
         encoding="utf-8",
     )
 
@@ -144,7 +141,12 @@ def test_screen_email_invalid_email_short_circuits():
 # (No real HTTP calls)
 # -----------------------
 class FakeResponse:
-    def __init__(self, status_code: int, json_data: Optional[Dict[str, Any]] = None, text: str = ""):
+    def __init__(
+        self,
+        status_code: int,
+        json_data: Optional[Dict[str, Any]] = None,
+        text: str = "",
+    ):
         self.status_code = status_code
         self._json_data = json_data or {}
         self.text = text

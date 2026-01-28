@@ -13,9 +13,9 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 from urllib.parse import urlparse
 
+import matplotlib.pyplot as plt
 import requests
 import yaml
-import matplotlib.pyplot as plt
 
 # Paths
 INPUT_EMAIL_CSV = os.getenv("INPUT_EMAIL_CSV")
@@ -485,7 +485,7 @@ def main() -> int:
         log_kv(logger, logging.ERROR, "write_output_failed", error=str(exc))
         return 2
 
-    # Creating chart output 
+    # Creating chart output
     chart_path = OUTPUT_CSV.with_name("breach_summary.png")
     try:
         write_breach_chart_png(chart_path, results, top_n=10)
