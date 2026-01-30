@@ -28,3 +28,56 @@ When the program runs successfully, it generates the following files
 File: "output_result1.csv"
 Contains one row per email: "email_address", "breached" (True/False), "site_where_breached" (semicolon-separated)
 
+2. Analyst Summary CSV
+File: "breach_summary.csv"
+Contains: Total emails processed, Number of breach sources, Number of unique breach sources and Top breach sources with counts
+
+3. Chart Output
+File: "breach_summary_png"
+Contains A bar chart showing the most common breach sources.
+
+## **Project Structure** 
+
+Layout:
+    
+    - main.py (main application logic)
+    - config.yml (Application configuration)
+    - email_list.csv (Input file)
+    - tests/ - (Unit tests "test_main.py")
+    - Dockerfile - (Docker definition)
+    - README.md (Documentation)
+
+## **Requirements**
+
+Python 3.12+
+requests
+pyyaml
+matplotlib
+
+**Development / Testing Requirements**
+
+pytest
+ruff
+black
+
+All dependencies are listed in `requirements-dev.txt`.
+
+### **Install dependencies using pip**
+
+pip install -r requirements-dev.txt
+
+# **Configuration**
+## **IntelX API Key and Environment variables**
+
+An IntelX API is required and must be provided via an environment variable:
+$env:INTELX_API_KEY="API_KEY"
+
+The application also uses environment variables for file paths:
+$env:INPUT_EMAIL_CSV="PATH TO email_list.csv"
+$env:OUTPUT_CSV="PATH TO output_result1.csv"
+
+## **Example input CSV format**
+
+    - **Header:** email_address
+    - **row 1:** user1@example.com
+    - **row 2:** user2@example.com
