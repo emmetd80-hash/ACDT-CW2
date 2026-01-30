@@ -70,14 +70,19 @@ pip install -r requirements-dev.txt
 ## **IntelX API Key and Environment variables**
 
 An IntelX API is required and must be provided via an environment variable:
-$env:INTELX_API_KEY="API_KEY"
+    - $env:INTELX_API_KEY="API_KEY"
 
 The application also uses environment variables for file paths:
-$env:INPUT_EMAIL_CSV="PATH TO email_list.csv"
-$env:OUTPUT_CSV="PATH TO output_result1.csv"
+    - $env:INPUT_EMAIL_CSV="PATH TO email_list.csv"
+    - $env:OUTPUT_CSV="PATH TO output_result1.csv"
 
 ## **Example input CSV format**
 
-    - **Header:** email_address
-    - **row 1:** user1@example.com
-    - **row 2:** user2@example.com
+    - Header: email_address
+    - row1: user1@example.com
+    - row2: user2@example.com
+
+## **Running the application locally**
+
+After entering the required environment variables and changing to the projects directory:
+    - python main.py
