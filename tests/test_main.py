@@ -223,3 +223,255 @@ def test_request_exhausts_retries_and_raises(monkeypatch):
         client._request("GET", "/x", correlation_id="cid-3")
 
     assert client.session.request.call_count == client.cfg.max_retries
+
+# -----------------------
+# NEW: analyst summary tests
+# -----------------------
+def test_build_analyst_summary_counts_and_top_sources():
+    results = [
+        main.ScreenResult("a@example.com", True, ["x.com", "y.com"]),
+        main.ScreenResult("b@example.com", True, ["x.com"]),
+        main.ScreenResult("c@example.com", False, []),
+        main.ScreenResult("d@example.com", True, ["z.com", "x.com"]),
+    ]
+
+    summary = main.build_analyst_summary(results, top_n=2)
+
+    assert summary["total_emails"] == 4
+    assert summary["breached_emails"] == 3
+    assert summary["unique_sources"] == 3
+
+    # x.com appears 3 times, y.com 1, z.com 1 -> top 2 should include x.com and one of (y.com/z.com)
+    assert summary["top_sources"][0]["domain"] == "x.com"
+    assert summary["top_sources"][0]["count"] == 3
+    assert len(summary["top_sources"]) == 2
+    assert summary["top_sources"][1]["count"] == 1
+
+
+def test_write_summary_csv_writes_expected_layout(tmp_path: Path):
+    summary = {
+        "total_emails": 3,
+        "breached_emails": 2,
+        "unique_sources": 2,
+        "top_sources": [
+            {"domain": "example.com", "count": 2},
+            {"domain": "foo.com", "count": 1},
+        ],
+    }
+
+    out = tmp_path / "breach_summary.csv"
+    main.write_summary_csv(out, summary)
+
+    assert out.exists()
+
+    lines = out.read_text(encoding="utf-8").splitlines()
+
+    # Header section
+    assert lines[0] == "metric,value"
+    assert lines[1] == "total_emails,3"
+    assert lines[2] == "breached_emails,2"
+    assert lines[3] == "unique_sources,2"
+
+    # Blank line then top sources table header
+    assert lines[4] == ""
+    assert lines[5] == "top_sources_domain,count"
+
+    # Rows
+    assert lines[6] == "example.com,2"
+    assert lines[7] == "foo.com,1"
+
+# -----------------------
+# Extra: Email + hashing helpers
+# -----------------------
+def test_is_valid_email_trims_whitespace():
+    assert main.is_valid_email("  test@example.com  ")
+
+
+def test_correlation_id_for_is_deterministic_and_12_chars():
+    cid1 = main.correlation_id_for("Test@Example.com")
+    cid2 = main.correlation_id_for("test@example.com")  # same email, different case
+    assert cid1 == cid2
+    assert len(cid1) == 12
+
+
+# -----------------------
+# Extra: extract_source_domain unit tests
+# -----------------------
+def test_extract_source_domain_from_url():
+    item = {"name": "https://sub.example.com/path/to/page"}
+    assert main.extract_source_domain(item) == "sub.example.com"
+
+
+def test_extract_source_domain_from_text_domain():
+    item = {"name": "Leak posted on example.org in a forum"}
+    assert main.extract_source_domain(item) == "example.org"
+
+
+def test_extract_source_domain_returns_none_when_missing_name():
+    assert main.extract_source_domain({}) is None
+    assert main.extract_source_domain({"name": ""}) is None
+
+
+def test_extract_source_domain_bad_url_returns_none():
+    # urlparse won't throw, but hostname can be None
+    item = {"name": "https://"}
+    assert main.extract_source_domain(item) is None
+
+
+# -----------------------
+# Extra: CSV reading edge cases
+# -----------------------
+def test_read_emails_from_csv_strips_and_keeps_order(tmp_path: Path):
+    csv_path = tmp_path / "emails.csv"
+    csv_path.write_text(
+        "email_address\n"
+        "  a@example.com  \n"
+        "\n"
+        "b@example.com\n",
+        encoding="utf-8",
+    )
+
+    emails = main.read_emails_from_csv(str(csv_path))
+    # Note: your reader reads first column; empty row is skipped by `if not row`
+    assert emails == ["a@example.com", "b@example.com"]
+
+
+# -----------------------
+# Extra: screen_email polling behaviour
+# -----------------------
+class PollingClient:
+    """Fake client that returns empty results first, then results."""
+    def __init__(self, cfg):
+        self.cfg = cfg
+        self.calls = 0
+
+    def start_search(self, term: str, correlation_id: str) -> str:
+        return "search-1"
+
+    def fetch_results(self, search_id: str, correlation_id: str, limit: int, offset: int):
+        self.calls += 1
+        if self.calls == 1:
+            return {"records": []}  # empty first poll
+        return {"records": [{"name": "https://example.com/leak"}]}  # success second poll
+
+
+def test_screen_email_polls_until_records_found(monkeypatch):
+    # avoid real sleep
+    monkeypatch.setattr(main.time, "sleep", lambda _: None)
+
+    cfg = main.IntelXConfig(
+        base_url="https://example.test",
+        api_key_env="INTELX_API_KEY",
+        requests_per_second=1000.0,
+        timeout_connect=0.1,
+        timeout_read=0.1,
+        max_retries=1,
+        backoff_initial_seconds=0.0,
+        backoff_max_seconds=1.0,
+        retry_on_status=(429,),
+        max_results=40,
+        search_timeout_seconds=0,
+        sort=2,
+        lookuplevel=0,
+        buckets=[],
+        result_poll_attempts=3,
+        result_poll_initial_delay_seconds=0.0,
+    )
+
+    client = PollingClient(cfg)
+    logger = main.setup_logger("INFO")
+
+    res = main.screen_email(client, "test@example.com", logger)
+    assert res.breached is True
+    assert "example.com" in res.site_where_breached
+    assert client.calls == 2  # proves it polled again
+
+
+# -----------------------
+# Extra: _request retry logic details
+# -----------------------
+def test_request_does_not_retry_on_non_retry_status(monkeypatch):
+    client = make_client_for_request_tests(monkeypatch)
+
+    # 404 is not in retry_on_status -> should return immediately
+    client.session.request = Mock(side_effect=[FakeResponse(404)])
+
+    resp = client._request("GET", "/x", correlation_id="cid-404")
+    assert resp.status_code == 404
+    assert client.session.request.call_count == 1
+
+
+def test_request_honours_retry_after_header(monkeypatch):
+    client = make_client_for_request_tests(monkeypatch)
+
+    r1 = FakeResponse(429)
+    r1.headers["Retry-After"] = "7"  # would sleep 7, but we patch sleep
+    r2 = FakeResponse(200)
+
+    client.session.request = Mock(side_effect=[r1, r2])
+
+    sleep_spy = Mock()
+    monkeypatch.setattr(main.time, "sleep", sleep_spy)
+    client.ratelimiter.wait = lambda: None
+
+    resp = client._request("GET", "/x", correlation_id="cid-ra")
+    assert resp.status_code == 200
+
+    # proves it tried to sleep because of retry-after
+    assert sleep_spy.call_count >= 1
+
+# -----------------------
+# NEW: analyst summary tests
+# -----------------------
+def test_build_analyst_summary_counts_and_top_sources():
+    results = [
+        main.ScreenResult("a@example.com", True, ["x.com", "y.com"]),
+        main.ScreenResult("b@example.com", True, ["x.com"]),
+        main.ScreenResult("c@example.com", False, []),
+        main.ScreenResult("d@example.com", True, ["z.com", "x.com"]),
+    ]
+
+    summary = main.build_analyst_summary(results, top_n=2)
+
+    assert summary["total_emails"] == 4
+    assert summary["breached_emails"] == 3
+    assert summary["unique_sources"] == 3
+
+    # x.com appears 3 times, y.com 1, z.com 1 -> top 2 should include x.com and one of (y.com/z.com)
+    assert summary["top_sources"][0]["domain"] == "x.com"
+    assert summary["top_sources"][0]["count"] == 3
+    assert len(summary["top_sources"]) == 2
+    assert summary["top_sources"][1]["count"] == 1
+
+
+def test_write_summary_csv_writes_expected_layout(tmp_path: Path):
+    summary = {
+        "total_emails": 3,
+        "breached_emails": 2,
+        "unique_sources": 2,
+        "top_sources": [
+            {"domain": "example.com", "count": 2},
+            {"domain": "foo.com", "count": 1},
+        ],
+    }
+
+    out = tmp_path / "breach_summary.csv"
+    main.write_summary_csv(out, summary)
+
+    assert out.exists()
+
+    lines = out.read_text(encoding="utf-8").splitlines()
+
+    # Header section
+    assert lines[0] == "metric,value"
+    assert lines[1] == "total_emails,3"
+    assert lines[2] == "breached_emails,2"
+    assert lines[3] == "unique_sources,2"
+
+    # Blank line then top sources table header
+    assert lines[4] == ""
+    assert lines[5] == "top_sources_domain,count"
+
+    # Rows
+    assert lines[6] == "example.com,2"
+    assert lines[7] == "foo.com,1"

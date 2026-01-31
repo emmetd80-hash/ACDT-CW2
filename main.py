@@ -23,9 +23,16 @@ INPUT_EMAIL_CSV = os.getenv("INPUT_EMAIL_CSV")
 SCRIPT_DIR = Path(__file__).resolve().parent
 CONFIG_PATH = SCRIPT_DIR / "config.yml"
 
-OUTPUT_CSV = Path(os.getenv("OUTPUT_CSV", "/data/output_result1.csv"))
+OUTPUT_CSV = Path(
+    os.getenv(
+        "OUTPUT_CSV",
+        SCRIPT_DIR / "output_result1.csv"
+    )
+)
 
-EMAIL_REGEX = re.compile(r"^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+$")
+EMAIL_REGEX = re.compile(
+    r"^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+$"
+)
 
 
 # Logging (structured JSON)
@@ -95,14 +102,18 @@ def load_config(path: Path) -> Tuple[IntelXConfig, AppConfig]:
         max_retries=int(ix.get("max_retries", 5)),
         backoff_initial_seconds=float(ix.get("backoff_initial_seconds", 1.0)),
         backoff_max_seconds=float(ix.get("backoff_max_seconds", 20.0)),
-        retry_on_status=tuple(int(x) for x in ix.get("retry_on_status", [429, 500, 502, 503, 504])),
+        retry_on_status=tuple(
+            int(x) for x in ix.get("retry_on_status", [429, 500, 502, 503, 504])
+        ),
         max_results=int(ix.get("max_results", 40)),
         search_timeout_seconds=int(ix.get("search_timeout_seconds", 0)),
         sort=int(ix.get("sort", 2)),
         lookuplevel=int(ix.get("lookuplevel", 0)),
         buckets=list(ix.get("buckets", [])),
         result_poll_attempts=int(ix.get("result_poll_attempts", 6)),
-        result_poll_initial_delay_seconds=float(ix.get("result_poll_initial_delay_seconds", 0.5)),
+        result_poll_initial_delay_seconds=float(
+            ix.get("result_poll_initial_delay_seconds", 0.5)
+        ),
     )
 
     app_cfg = AppConfig(
@@ -144,6 +155,45 @@ def extract_source_domain(item: Dict[str, Any]) -> Optional[str]:
         return m.group(1).lower()
 
     return None
+
+
+# NEW: Analyst summary (top sources + counts)
+def build_analyst_summary(results: Sequence["ScreenResult"], *, top_n: int = 10) -> Dict[str, Any]:
+    total = len(results)
+    breached_count = sum(1 for r in results if r.breached)
+
+    counts: Dict[str, int] = {}
+    for r in results:
+        if not r.breached:
+            continue
+        for src in r.site_where_breached:
+            if not src:
+                continue
+            counts[src] = counts.get(src, 0) + 1
+
+    top = sorted(counts.items(), key=lambda kv: kv[1], reverse=True)[:top_n]
+
+    return {
+        "total_emails": total,
+        "breached_emails": breached_count,
+        "unique_sources": len(counts),
+        "top_sources": [{"domain": d, "count": c} for d, c in top],
+    }
+
+
+# NEW: Summary CSV writer (for evidence)
+def write_summary_csv(path: Path, summary: Dict[str, Any]) -> None:
+    with open(path, "w", encoding="utf-8", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(["metric", "value"])
+        writer.writerow(["total_emails", summary["total_emails"]])
+        writer.writerow(["breached_emails", summary["breached_emails"]])
+        writer.writerow(["unique_sources", summary["unique_sources"]])
+
+        writer.writerow([])
+        writer.writerow(["top_sources_domain", "count"])
+        for row in summary["top_sources"]:
+            writer.writerow([row["domain"], row["count"]])
 
 
 # Rate limiter
@@ -196,7 +246,7 @@ class IntelXClient:
         backoff = self.cfg.backoff_initial_seconds
         last_exc: Optional[Exception] = None
 
-        for attempt in range(1, self.cfg.max_retries + 1):
+        for _attempt in range(1, self.cfg.max_retries + 1):
             self.ratelimiter.wait()
             try:
                 log_kv(
@@ -396,8 +446,13 @@ def write_results_csv(path: Path, results: Sequence[ScreenResult]) -> None:
         writer.writerow(["email_address", "breached", "site_where_breached"])
         for r in results:
             writer.writerow(
-                [r.email_address, str(bool(r.breached)), ";".join(r.site_where_breached)]
+                [
+                    r.email_address,
+                    str(bool(r.breached)),
+                    ";".join(r.site_where_breached),
+                ]
             )
+
 
 
 # Chart Output
@@ -407,7 +462,6 @@ def write_breach_chart_png(
     *,
     top_n: int = 10,
 ) -> None:
-
     counts: Dict[str, int] = {}
     for r in results:
         if not r.breached:
@@ -476,8 +530,31 @@ def main() -> int:
             cid = correlation_id_for(email)
             log_kv(logger, logging.ERROR, "screen_failed", cid=cid, email=email, error=str(exc))
             results.append(
-                ScreenResult(email_address=email, breached=False, site_where_breached=[])
+                ScreenResult(
+                    email_address=email,
+                    breached=False,
+                    site_where_breached=[],
+                )
             )
+
+
+    # NEW: log + write concise analyst summary
+    summary = build_analyst_summary(results, top_n=10)
+    log_kv(
+        logger,
+        logging.INFO,
+        "analyst_summary",
+        total_emails=summary["total_emails"],
+        breached_emails=summary["breached_emails"],
+        unique_sources=summary["unique_sources"],
+        top_sources=summary["top_sources"],
+    )
+    try:
+        summary_path = OUTPUT_CSV.with_name("breach_summary.csv")
+        write_summary_csv(summary_path, summary)
+        log_kv(logger, logging.INFO, "summary_written", summary_path=str(summary_path))
+    except Exception as exc:
+        log_kv(logger, logging.WARNING, "summary_write_failed", error=str(exc))
 
     try:
         write_results_csv(OUTPUT_CSV, results)
