@@ -69,14 +69,20 @@ pip install -r requirements-dev.txt
 # **Configuration**
 ## **IntelX API Key and Environment variables**
 
+The application interacts with the IntelX API endpoint: 
+
+    -https://free.intelx.io
+
+IntelX registration is required for API key and can be found here after registration: https://intelx.io/account?tab=developer
+Only users in possession of a valid IntelX API key can successfully run the application.
+
 An IntelX API is required and must be provided via an environment variable:
 
     - $env:INTELX_API_KEY="API_KEY"
 
-The application also uses environment variables for file paths:
+The application also uses environment variables for file path:
 
     - $env:INPUT_EMAIL_CSV="PATH TO email_list.csv"
-    - $env:OUTPUT_CSV="PATH TO output_result1.csv"
 
 ## **Example input CSV format**
 
@@ -89,3 +95,72 @@ The application also uses environment variables for file paths:
 After entering the required environment variables and changing to the projects directory:
 
     - python main.py
+
+On completion, if successful the output CSV files and chart will be written to the projects location.
+
+# **Docker Usage**
+
+## **Building the Docker Image**
+
+    - docker build -t breach-screener .
+
+## **Run the Container**
+
+    - docker run --rm `
+    -e INTELX_API_KEY="18211fcd-cb24-4343-b2b0-a2d81868adfe" `
+    -e INPUT_EMAIL_CSV="/data/email_list.csv" `
+    -v "C:\Users\Emmet\OneDrive\Level 6\Cloud\ACDT CW2:/data" `
+    breach-screener
+
+This ensures all input files and generated outputs are accessible on the Host system
+
+# **Testing**
+
+Unit tests are written using Pytest and cover the following:
+
+1. CSV input handling
+2. Email validation
+3. Correlation ID generation
+4. Breach source extraction
+5. IntelX polling behaviour
+6. Retry and backoff logic
+7. Error handling
+
+Run tests locally with: 
+    
+    - python -m pytest -v .\tests\test_main.py
+
+# **Continuous Integration (CI)**
+
+The project includes a GitHub Actions CI pipeline (ci.yml) which runs on every push and pull requests
+The Pipeline performs the following:
+
+1. Dependency installation
+2. Linting with Ruff
+3. Formatting checks with Black
+4. Execution of all unit tests using Pytest
+
+A build will fails if any of the above steps fail.
+
+# **Limitations**
+
+1. Results depend on IntelX API availability and data quality
+2. Free IntelX endpoints may return partial or delayed results
+3. The tool does not verify password exposure
+
+# **Ethics & GDPR Considerations**
+
+Ethical and legal considerations to consider:
+
+1. Screening only email addresses owned or authorised by ALC
+2. Minimal personal data processing
+3. No storage of unnecessary personal information
+4. Compliance with GDPR principles of data minimisation and purpose limitation
+
+This application is intended for educational and prototype purposes only.
+
+# **Author**
+
+Emmet Devine
+Advanced Cloud Development Technologies
+ACDT_CW_II_25-26
