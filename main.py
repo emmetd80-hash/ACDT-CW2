@@ -23,16 +23,9 @@ INPUT_EMAIL_CSV = os.getenv("INPUT_EMAIL_CSV")
 SCRIPT_DIR = Path(__file__).resolve().parent
 CONFIG_PATH = SCRIPT_DIR / "config.yml"
 
-OUTPUT_CSV = Path(
-    os.getenv(
-        "OUTPUT_CSV",
-        SCRIPT_DIR / "output_result1.csv"
-    )
-)
+OUTPUT_CSV = Path(os.getenv("OUTPUT_CSV", SCRIPT_DIR / "output_result1.csv"))
 
-EMAIL_REGEX = re.compile(
-    r"^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+$"
-)
+EMAIL_REGEX = re.compile(r"^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+$")
 
 
 # Logging (structured JSON)
@@ -102,18 +95,14 @@ def load_config(path: Path) -> Tuple[IntelXConfig, AppConfig]:
         max_retries=int(ix.get("max_retries", 5)),
         backoff_initial_seconds=float(ix.get("backoff_initial_seconds", 1.0)),
         backoff_max_seconds=float(ix.get("backoff_max_seconds", 20.0)),
-        retry_on_status=tuple(
-            int(x) for x in ix.get("retry_on_status", [429, 500, 502, 503, 504])
-        ),
+        retry_on_status=tuple(int(x) for x in ix.get("retry_on_status", [429, 500, 502, 503, 504])),
         max_results=int(ix.get("max_results", 40)),
         search_timeout_seconds=int(ix.get("search_timeout_seconds", 0)),
         sort=int(ix.get("sort", 2)),
         lookuplevel=int(ix.get("lookuplevel", 0)),
         buckets=list(ix.get("buckets", [])),
         result_poll_attempts=int(ix.get("result_poll_attempts", 6)),
-        result_poll_initial_delay_seconds=float(
-            ix.get("result_poll_initial_delay_seconds", 0.5)
-        ),
+        result_poll_initial_delay_seconds=float(ix.get("result_poll_initial_delay_seconds", 0.5)),
     )
 
     app_cfg = AppConfig(
@@ -454,7 +443,6 @@ def write_results_csv(path: Path, results: Sequence[ScreenResult]) -> None:
             )
 
 
-
 # Chart Output
 def write_breach_chart_png(
     output_path: Path,
@@ -536,7 +524,6 @@ def main() -> int:
                     site_where_breached=[],
                 )
             )
-
 
     # NEW: log + write concise analyst summary
     summary = build_analyst_summary(results, top_n=10)
