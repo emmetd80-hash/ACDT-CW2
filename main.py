@@ -258,7 +258,10 @@ def write_summary_csv(path: Path, summary: Dict[str, Any]) -> None:
 
 # Rate limiter
 class RateLimiter:
-    """Rate limiter based on minimum interval between calls, to keep API usage under requests_per_second"""
+    """Rate limiter based on a minimum interval between calls.
+
+    Keeps API usage under the configured requests_per_second.
+    """
     def __init__(self, requests_per_second: float) -> None:
         self.min_interval = 1.0 / max(requests_per_second, 0.0001)
         self._last = 0.0

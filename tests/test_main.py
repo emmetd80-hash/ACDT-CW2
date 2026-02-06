@@ -1,3 +1,4 @@
+# ruff: noqa: E402
 """
 Unit tests for main.py (ALC Breach Screener).
 
@@ -7,6 +8,7 @@ These tests cover:
   - IntelXClient._request retry behaviour (using mocked HTTP responses)
   - Small helper functions (email validation, correlation id, domain extraction)
 """
+
 import sys
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -19,7 +21,8 @@ import requests
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
 
-import main  
+import main  # noqa: I001
+ 
 
 
 def test_read_emails_from_csv_reads_email_address_column(tmp_path: Path):
