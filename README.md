@@ -6,15 +6,15 @@ The tool is designed Antrim Logistics Company (ALC), that screens new and existi
 
 ## **What the Application Does**
 
-Once provided a CSV file of email addresses, the application:
+Once provided a CSV file of email addresses, the application will:
 
-1. Screens each email against the IntelX API
+1. Screen each email against the IntelX API
 
-2. Checks whether the email appears in breach records
+2. Check whether the email appears in breach records
 
-3. Extracts breach source domains and the files in which client credentials were found
+3. Extract breach source domains and the files in which client credentials were found
 
-4. Produces:
+4. Produce:
 
     - A detailed results CSV
     - A concise analyst summary CSV
@@ -35,6 +35,47 @@ Contains: Total emails processed, Number of breach sources, Number of unique bre
 3. Chart Output
 File: "breach_summary_png"
 Contains A bar chart showing the most common breach sources.
+
+## **Example Results**
+
+1. Results CSV
+Example rows from output_result1.csv:
+
+    | email_address     | breached | breached_sources    |
+    | ----------------- | -------- | ------------------- |
+    | user_001@redacted | True     | example.com;foo.com |
+    | user_002@redacted | False    |                     |
+    | user_003@redacted | True     | example.com         |
+
+2. Analyst Summary CSV
+Example contents of breach_summary.csv: 
+
+    | metric          | value |
+    | --------------- | ----- |
+    | total_emails    | 3     |
+    | breached_emails | 2     |
+    | unique_sources  | 2     |
+
+Top breached sources:
+    | domain      | count |
+    | ----------- | ----- |
+    | example.com | 2     |
+    | foo.com     | 1     |
+
+
+3. Breach Source Chart
+The application generates a bar chart (breach_summary.png) showing the most common breaches across the screened email CSV.
+
+* The x-axis represents breach source files or domains
+
+* The y-axis shows the number of affected email addresses
+
+* The chart enables rapid identification of high-risk breach sources
+
+## **Data Protection Notice**
+
+All example outputs shown above use synthetic or redacted data.
+No real client email addresses or personal identifiers are included in this documentation.
 
 ## **Project Structure** 
 

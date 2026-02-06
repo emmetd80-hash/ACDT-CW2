@@ -1,3 +1,12 @@
+"""
+Unit tests for main.py (ALC Breach Screener).
+
+These tests cover:
+  - CSV input/output helpers
+  - screen_email parsing + polling behaviour (using fakes/mocks, no real API calls)
+  - IntelXClient._request retry behaviour (using mocked HTTP responses)
+  - Small helper functions (email validation, correlation id, domain extraction)
+"""
 import sys
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -6,16 +15,15 @@ from unittest.mock import Mock
 import pytest
 import requests
 
+# Repo root so "import main" works in test runs
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
 
-import main  # noqa: E402
+import main  
 
 
-# -----------------------
-# CSV I/O
-# -----------------------
 def test_read_emails_from_csv_reads_email_address_column(tmp_path: Path):
+    """Reads first column (after header) and preserves order."""
     csv_path = tmp_path / "emails.csv"
     csv_path.write_text(
         "email_address\n" "test@example.com\n" "not-an-email\n" "alice@example.org\n",
@@ -27,12 +35,14 @@ def test_read_emails_from_csv_reads_email_address_column(tmp_path: Path):
 
 
 def test_read_emails_from_csv_missing_file_raises(tmp_path: Path):
+    """Missing input file should raise FileNotFoundError."""
     missing = tmp_path / "missing.csv"
     with pytest.raises(FileNotFoundError):
         main.read_emails_from_csv(str(missing))
 
 
 def test_write_results_csv_writes_file_in_tests_dir():
+    """Writes expected header + rows to a CSV file."""
     tests_dir = Path(__file__).resolve().parent
     out = tests_dir / "test_output_results.csv"
 
@@ -45,15 +55,12 @@ def test_write_results_csv_writes_file_in_tests_dir():
 
     assert out.exists()
     lines = out.read_text(encoding="utf-8").splitlines()
-    assert lines[0] == "email_address,breached,site_where_breached"
+    # Header must match main.write_results_csv()
+    assert lines[0] == "email_address,breached,breached_sources"
 
 
-# -----------------------
-# Response parsing via screen_email
-# (No real IntelX calls)
-# -----------------------
 class FakeClient:
-    """Minimal fake of IntelXClient used to test screen_email parsing."""
+    """Fake of IntelXClient used to test screen_email parsing."""
 
     def __init__(self, cfg):
         self.cfg = cfg
@@ -77,13 +84,13 @@ class FakeClient:
             "records": [
                 {"name": "https://verifications.io/leak"},
                 {"name": "This mentions teespring.com in text"},
-                {"name": "2.txt (should not really be a domain)"},
+                {"name": "2.txt"},
             ]
         }
 
 
 def test_screen_email_parses_sources(monkeypatch):
-    # Avoid real sleeps from polling loop
+    """Extracts domains from URL/text records and marks breached when records exist."""
     monkeypatch.setattr(main.time, "sleep", lambda _: None)
 
     cfg = main.IntelXConfig(
@@ -118,6 +125,7 @@ def test_screen_email_parses_sources(monkeypatch):
 
 
 def test_screen_email_invalid_email_short_circuits():
+    """Invalid email returns not-breached and does not call the client."""
     cfg = Mock()
     cfg.result_poll_attempts = 1
     cfg.result_poll_initial_delay_seconds = 0.0
@@ -136,11 +144,8 @@ def test_screen_email_invalid_email_short_circuits():
     client.fetch_results.assert_not_called()
 
 
-# -----------------------
-# Retry logic tests for IntelXClient._request
-# (No real HTTP calls)
-# -----------------------
 class FakeResponse:
+    # Fake response compatible with IntelXClient._request.
     def __init__(
         self,
         status_code: int,
@@ -157,6 +162,7 @@ class FakeResponse:
 
 
 def make_client_for_request_tests(monkeypatch) -> main.IntelXClient:
+    """Build a real IntelXClient."""
     monkeypatch.setenv("INTELX_API_KEY", "dummy")
 
     cfg = main.IntelXConfig(
@@ -191,6 +197,7 @@ def make_client_for_request_tests(monkeypatch) -> main.IntelXClient:
 
 
 def test_request_retries_on_429_then_succeeds(monkeypatch):
+    """429 triggers retry; second response succeeds."""
     client = make_client_for_request_tests(monkeypatch)
 
     client.session.request = Mock(side_effect=[FakeResponse(429), FakeResponse(200)])
@@ -198,10 +205,11 @@ def test_request_retries_on_429_then_succeeds(monkeypatch):
     resp = client._request("GET", "/x", correlation_id="cid-1")
 
     assert resp.status_code == 200
-    assert client.session.request.call_count == 2  # proves retry occurred
+    assert client.session.request.call_count == 2 
 
 
 def test_request_retries_on_network_error_then_succeeds(monkeypatch):
+    """Network exception triggers retry; subsequent response succeeds."""
     client = make_client_for_request_tests(monkeypatch)
 
     client.session.request = Mock(
@@ -215,6 +223,7 @@ def test_request_retries_on_network_error_then_succeeds(monkeypatch):
 
 
 def test_request_exhausts_retries_and_raises(monkeypatch):
+    """Retryable status repeated max_retries times raises RuntimeError."""
     client = make_client_for_request_tests(monkeypatch)
 
     client.session.request = Mock(side_effect=[FakeResponse(500)] * client.cfg.max_retries)
@@ -225,48 +234,45 @@ def test_request_exhausts_retries_and_raises(monkeypatch):
     assert client.session.request.call_count == client.cfg.max_retries
 
 
-# -----------------------
-# Extra: Email + hashing helpers
-# -----------------------
 def test_is_valid_email_trims_whitespace():
+    """Whitespace around email should be ignored."""
     assert main.is_valid_email("  test@example.com  ")
 
 
 def test_correlation_id_for_is_deterministic_and_12_chars():
+    """Same email (case-insensitive) keeps same 12-char correlation id."""
     cid1 = main.correlation_id_for("Test@Example.com")
-    cid2 = main.correlation_id_for("test@example.com")  # same email, different case
+    cid2 = main.correlation_id_for("test@example.com")  
     assert cid1 == cid2
     assert len(cid1) == 12
 
 
-# -----------------------
-# Extra: extract_source_domain unit tests
-# -----------------------
 def test_extract_source_domain_from_url():
+    """URL hostname should be returned as the domain."""
     item = {"name": "https://sub.example.com/path/to/page"}
     assert main.extract_source_domain(item) == "sub.example.com"
 
 
 def test_extract_source_domain_from_text_domain():
+    """Domain-like tokens in text should be extracted."""
     item = {"name": "Leak posted on example.org in a forum"}
     assert main.extract_source_domain(item) == "example.org"
 
 
 def test_extract_source_domain_returns_none_when_missing_name():
+    """Missing/blank names should return None."""
     assert main.extract_source_domain({}) is None
     assert main.extract_source_domain({"name": ""}) is None
 
 
 def test_extract_source_domain_bad_url_returns_none():
-    # urlparse won't throw, but hostname can be None
+    """Bad URL with no hostname should return None."""
     item = {"name": "https://"}
     assert main.extract_source_domain(item) is None
 
 
-# -----------------------
-# Extra: CSV reading edge cases
-# -----------------------
 def test_read_emails_from_csv_strips_and_keeps_order(tmp_path: Path):
+    """Strips whitespace and preserves order; empty CSV rows are ignored."""
     csv_path = tmp_path / "emails.csv"
     csv_path.write_text(
         "email_address\n" "  a@example.com  \n" "\n" "b@example.com\n",
@@ -274,13 +280,9 @@ def test_read_emails_from_csv_strips_and_keeps_order(tmp_path: Path):
     )
 
     emails = main.read_emails_from_csv(str(csv_path))
-    # Note: your reader reads first column; empty row is skipped by `if not row`
     assert emails == ["a@example.com", "b@example.com"]
 
 
-# -----------------------
-# Extra: screen_email polling behaviour
-# -----------------------
 class PollingClient:
     """Fake client that returns empty results first, then results."""
 
@@ -299,7 +301,7 @@ class PollingClient:
 
 
 def test_screen_email_polls_until_records_found(monkeypatch):
-    # avoid real sleep
+    """If first poll is empty, it should poll again until records appear."""
     monkeypatch.setattr(main.time, "sleep", lambda _: None)
 
     cfg = main.IntelXConfig(
@@ -330,13 +332,10 @@ def test_screen_email_polls_until_records_found(monkeypatch):
     assert client.calls == 2  # proves it polled again
 
 
-# -----------------------
-# Extra: _request retry logic details
-# -----------------------
 def test_request_does_not_retry_on_non_retry_status(monkeypatch):
+    """Non-retryable status codes should return immediately."""
     client = make_client_for_request_tests(monkeypatch)
 
-    # 404 is not in retry_on_status -> should return immediately
     client.session.request = Mock(side_effect=[FakeResponse(404)])
 
     resp = client._request("GET", "/x", correlation_id="cid-404")
@@ -345,10 +344,11 @@ def test_request_does_not_retry_on_non_retry_status(monkeypatch):
 
 
 def test_request_honours_retry_after_header(monkeypatch):
+    """Retry-After header should influence sleep duration (sleep is patched here)."""
     client = make_client_for_request_tests(monkeypatch)
 
     r1 = FakeResponse(429)
-    r1.headers["Retry-After"] = "7"  # would sleep 7, but we patch sleep
+    r1.headers["Retry-After"] = "7" 
     r2 = FakeResponse(200)
 
     client.session.request = Mock(side_effect=[r1, r2])
@@ -364,10 +364,8 @@ def test_request_honours_retry_after_header(monkeypatch):
     assert sleep_spy.call_count >= 1
 
 
-# -----------------------
-# NEW: analyst summary tests
-# -----------------------
 def test_build_analyst_summary_counts_and_top_sources():
+    """Counts totals and ranks top breach sources by frequency."""
     results = [
         main.ScreenResult("a@example.com", True, ["x.com", "y.com"]),
         main.ScreenResult("b@example.com", True, ["x.com"]),
@@ -381,7 +379,6 @@ def test_build_analyst_summary_counts_and_top_sources():
     assert summary["breached_emails"] == 3
     assert summary["unique_sources"] == 3
 
-    # x.com appears 3 times, y.com 1, z.com 1 -> top 2 should include x.com and one of (y.com/z.com)
     assert summary["top_sources"][0]["domain"] == "x.com"
     assert summary["top_sources"][0]["count"] == 3
     assert len(summary["top_sources"]) == 2
@@ -389,6 +386,7 @@ def test_build_analyst_summary_counts_and_top_sources():
 
 
 def test_write_summary_csv_writes_expected_layout(tmp_path: Path):
+    """Summary CSV should include metrics block + top sources section."""
     summary = {
         "total_emails": 3,
         "breached_emails": 2,
@@ -406,16 +404,45 @@ def test_write_summary_csv_writes_expected_layout(tmp_path: Path):
 
     lines = out.read_text(encoding="utf-8").splitlines()
 
-    # Header section
     assert lines[0] == "metric,value"
     assert lines[1] == "total_emails,3"
     assert lines[2] == "breached_emails,2"
     assert lines[3] == "unique_sources,2"
 
-    # Blank line then top sources table header
     assert lines[4] == ""
-    assert lines[5] == "top_sources_domain,count"
+    assert lines[5] == "top_breached_sources,count"
 
-    # Rows
     assert lines[6] == "example.com,2"
     assert lines[7] == "foo.com,1"
+
+def test_write_breach_chart_png_creates_file_when_breaches_exist(tmp_path: Path):
+    """Creates a PNG chart file when at least one breached result exists."""
+    out = tmp_path / "breach_summary.png"
+
+    results = [
+        main.ScreenResult("a@example.com", True, ["example.com", "foo.com"]),
+        main.ScreenResult("b@example.com", True, ["example.com"]),
+        main.ScreenResult("c@example.com", False, []),
+    ]
+
+    main.write_breach_chart_png(out, results, top_n=10)
+
+    assert out.exists()
+    data = out.read_bytes()
+
+    assert data.startswith(b"\x89PNG\r\n\x1a\n")
+    assert out.stat().st_size > 100
+
+    
+def test_write_breach_chart_png_skips_when_no_breaches(tmp_path: Path):
+    """Does not create a chart file when no breached results are present."""
+    out = tmp_path / "breach_summary.png"
+
+    results = [
+        main.ScreenResult("a@example.com", False, []),
+        main.ScreenResult("b@example.com", False, []),
+    ]
+
+    main.write_breach_chart_png(out, results, top_n=10)
+
+    assert not out.exists()
