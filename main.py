@@ -40,7 +40,7 @@ CONFIG_PATH = SCRIPT_DIR / "config.yml"
 
 OUTPUT_CSV = Path(os.getenv("OUTPUT_CSV", SCRIPT_DIR / "output_result1.csv"))
 
-# Simple email validation regex 
+# Simple email validation regex
 EMAIL_REGEX = re.compile(r"^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+$")
 
 
@@ -91,6 +91,7 @@ class IntelXConfig:
 
     Fields are loaded from config.yml (intelx section).
     """
+
     base_url: str
     api_key_env: str
     requests_per_second: float
@@ -262,6 +263,7 @@ class RateLimiter:
 
     Keeps API usage under the configured requests_per_second.
     """
+
     def __init__(self, requests_per_second: float) -> None:
         self.min_interval = 1.0 / max(requests_per_second, 0.0001)
         self._last = 0.0
@@ -286,6 +288,7 @@ class IntelXClient:
           - start_search(term) -> search_id
           - fetch_results(search_id) -> JSON
     """
+
     def __init__(self, cfg: IntelXConfig, app: AppConfig, logger: logging.Logger) -> None:
         self.cfg = cfg
         self.app = app
@@ -316,7 +319,6 @@ class IntelXClient:
         json_body: Optional[Dict[str, Any]] = None,
         correlation_id: str,
     ) -> requests.Response:
-        
         """
         Make an HTTP request with retry/backoff handling.
 
@@ -496,6 +498,7 @@ class ScreenResult:
         breached: Whether IntelX returned any results for the email.
         site_where_breached: Unique list of extracted source domains.
     """
+
     email_address: str
     breached: bool
     site_where_breached: List[str]
@@ -548,7 +551,7 @@ def screen_email(client: IntelXClient, email: str, logger: logging.Logger) -> Sc
             break
         delay = min(delay * 2.0, client.cfg.backoff_max_seconds)
 
-     # 3) Extract unique sources from final response
+    # 3) Extract unique sources from final response
     records = last_data.get("records") or last_data.get("items") or []
     sources: List[str] = []
 
@@ -612,7 +615,7 @@ def read_emails_from_csv(path: str) -> List[str]:
     emails: List[str] = []
     with open(path, "r", encoding="utf-8-sig", newline="") as f:
         reader = csv.reader(f)
-        header = next(reader, None)  
+        header = next(reader, None)
         if header is None:
             return []
         for row in reader:
@@ -804,4 +807,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
-

@@ -22,7 +22,6 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
 
 import main  # noqa: I001
- 
 
 
 def test_read_emails_from_csv_reads_email_address_column(tmp_path: Path):
@@ -208,7 +207,7 @@ def test_request_retries_on_429_then_succeeds(monkeypatch):
     resp = client._request("GET", "/x", correlation_id="cid-1")
 
     assert resp.status_code == 200
-    assert client.session.request.call_count == 2 
+    assert client.session.request.call_count == 2
 
 
 def test_request_retries_on_network_error_then_succeeds(monkeypatch):
@@ -245,7 +244,7 @@ def test_is_valid_email_trims_whitespace():
 def test_correlation_id_for_is_deterministic_and_12_chars():
     """Same email (case-insensitive) keeps same 12-char correlation id."""
     cid1 = main.correlation_id_for("Test@Example.com")
-    cid2 = main.correlation_id_for("test@example.com")  
+    cid2 = main.correlation_id_for("test@example.com")
     assert cid1 == cid2
     assert len(cid1) == 12
 
@@ -351,7 +350,7 @@ def test_request_honours_retry_after_header(monkeypatch):
     client = make_client_for_request_tests(monkeypatch)
 
     r1 = FakeResponse(429)
-    r1.headers["Retry-After"] = "7" 
+    r1.headers["Retry-After"] = "7"
     r2 = FakeResponse(200)
 
     client.session.request = Mock(side_effect=[r1, r2])
@@ -418,6 +417,7 @@ def test_write_summary_csv_writes_expected_layout(tmp_path: Path):
     assert lines[6] == "example.com,2"
     assert lines[7] == "foo.com,1"
 
+
 def test_write_breach_chart_png_creates_file_when_breaches_exist(tmp_path: Path):
     """Creates a PNG chart file when at least one breached result exists."""
     out = tmp_path / "breach_summary.png"
@@ -436,7 +436,7 @@ def test_write_breach_chart_png_creates_file_when_breaches_exist(tmp_path: Path)
     assert data.startswith(b"\x89PNG\r\n\x1a\n")
     assert out.stat().st_size > 100
 
-    
+
 def test_write_breach_chart_png_skips_when_no_breaches(tmp_path: Path):
     """Does not create a chart file when no breached results are present."""
     out = tmp_path / "breach_summary.png"
