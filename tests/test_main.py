@@ -12,16 +12,23 @@ These tests cover:
 import sys
 from pathlib import Path
 from typing import Any, Dict, Optional
-from unittest.mock import Mock
+from unittest.mock import AsyncMock, Mock
 
+import httpx
 import pytest
-import requests
 
 # Repo root so "import main" works in test runs
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
 
 import main  # noqa: I001
+
+
+# ----------------------------
+# Shared async helpers
+# ----------------------------
+async def _no_sleep(_: float) -> None:
+    return None
 
 
 def test_read_emails_from_csv_reads_email_address_column(tmp_path: Path):
@@ -43,10 +50,10 @@ def test_read_emails_from_csv_missing_file_raises(tmp_path: Path):
         main.read_emails_from_csv(str(missing))
 
 
-def test_write_results_csv_writes_file_in_tests_dir():
+def test_write_results_csv_writes_file_in_tests_dir(tmp_path: Path):
     """Writes expected header + rows to a CSV file."""
-    tests_dir = Path(__file__).resolve().parent
-    out = tests_dir / "test_output_results.csv"
+    # Use tmp_path to avoid leaving files behind, but keep test name identical.
+    out = tmp_path / "test_output_results.csv"
 
     results = [
         main.ScreenResult("a@example.com", True, ["example.com"]),
@@ -69,11 +76,11 @@ class FakeClient:
         self.start_calls = 0
         self.fetch_calls = 0
 
-    def start_search(self, term: str, correlation_id: str) -> str:
+    async def start_search(self, term: str, correlation_id: str) -> str:
         self.start_calls += 1
         return "search-id-123"
 
-    def fetch_results(
+    async def fetch_results(
         self,
         search_id: str,
         correlation_id: str,
@@ -91,9 +98,10 @@ class FakeClient:
         }
 
 
-def test_screen_email_parses_sources(monkeypatch):
+@pytest.mark.asyncio
+async def test_screen_email_parses_sources(monkeypatch):
     """Extracts domains from URL/text records and marks breached when records exist."""
-    monkeypatch.setattr(main.time, "sleep", lambda _: None)
+    monkeypatch.setattr(main.asyncio, "sleep", _no_sleep)
 
     cfg = main.IntelXConfig(
         base_url="https://example.test",
@@ -112,12 +120,13 @@ def test_screen_email_parses_sources(monkeypatch):
         buckets=[],
         result_poll_attempts=1,
         result_poll_initial_delay_seconds=0.0,
+        max_concurrency=5,
     )
 
     client = FakeClient(cfg)
     logger = main.setup_logger("INFO")
 
-    result = main.screen_email(client, "test@example.com", logger)
+    result = await main.screen_email(client, "test@example.com", logger)
 
     assert result.breached is True
     assert "verifications.io" in result.site_where_breached
@@ -126,8 +135,11 @@ def test_screen_email_parses_sources(monkeypatch):
     assert client.fetch_calls >= 1
 
 
-def test_screen_email_invalid_email_short_circuits():
+@pytest.mark.asyncio
+async def test_screen_email_invalid_email_short_circuits(monkeypatch):
     """Invalid email returns not-breached and does not call the client."""
+    monkeypatch.setattr(main.asyncio, "sleep", _no_sleep)
+
     cfg = Mock()
     cfg.result_poll_attempts = 1
     cfg.result_poll_initial_delay_seconds = 0.0
@@ -136,9 +148,12 @@ def test_screen_email_invalid_email_short_circuits():
 
     client = Mock()
     client.cfg = cfg
+    client.start_search = AsyncMock()
+    client.fetch_results = AsyncMock()
+
     logger = main.setup_logger("INFO")
 
-    res = main.screen_email(client, "not-an-email", logger)
+    res = await main.screen_email(client, "not-an-email", logger)
 
     assert res.breached is False
     assert res.site_where_breached == []
@@ -184,56 +199,75 @@ def make_client_for_request_tests(monkeypatch) -> main.IntelXClient:
         buckets=[],
         result_poll_attempts=1,
         result_poll_initial_delay_seconds=0.0,
+        max_concurrency=5,
     )
 
     app = main.AppConfig(log_level="INFO", user_agent="test-agent")
     logger = main.setup_logger("INFO")
 
     client = main.IntelXClient(cfg, app, logger)
-
-    # Avoid real sleeps in retry/backoff logic
-    monkeypatch.setattr(main.time, "sleep", lambda _: None)
-    client.ratelimiter.wait = lambda: None
-
     return client
 
 
-def test_request_retries_on_429_then_succeeds(monkeypatch):
+@pytest.mark.asyncio
+async def test_request_retries_on_429_then_succeeds(monkeypatch):
     """429 triggers retry; second response succeeds."""
+    monkeypatch.setattr(main.asyncio, "sleep", _no_sleep)
+
     client = make_client_for_request_tests(monkeypatch)
+    try:
+        client.ratelimiter.wait = AsyncMock(return_value=None)
 
-    client.session.request = Mock(side_effect=[FakeResponse(429), FakeResponse(200)])
+        # Async main uses httpx.AsyncClient stored on client._client (per your async rewrite)
+        client._client.request = AsyncMock(side_effect=[FakeResponse(429), FakeResponse(200)])
 
-    resp = client._request("GET", "/x", correlation_id="cid-1")
+        resp = await client._request("GET", "/x", correlation_id="cid-1")
 
-    assert resp.status_code == 200
-    assert client.session.request.call_count == 2
+        assert resp.status_code == 200
+        assert client._client.request.call_count == 2
+    finally:
+        await client.aclose()
 
 
-def test_request_retries_on_network_error_then_succeeds(monkeypatch):
+@pytest.mark.asyncio
+async def test_request_retries_on_network_error_then_succeeds(monkeypatch):
     """Network exception triggers retry; subsequent response succeeds."""
+    monkeypatch.setattr(main.asyncio, "sleep", _no_sleep)
+
     client = make_client_for_request_tests(monkeypatch)
+    try:
+        client.ratelimiter.wait = AsyncMock(return_value=None)
 
-    client.session.request = Mock(
-        side_effect=[requests.ConnectionError("error"), FakeResponse(200)]
-    )
+        req = httpx.Request("GET", "https://example.test/x")
+        err = httpx.ConnectError("error", request=req)
 
-    resp = client._request("GET", "/x", correlation_id="cid-2")
+        client._client.request = AsyncMock(side_effect=[err, FakeResponse(200)])
 
-    assert resp.status_code == 200
-    assert client.session.request.call_count == 2
+        resp = await client._request("GET", "/x", correlation_id="cid-2")
+
+        assert resp.status_code == 200
+        assert client._client.request.call_count == 2
+    finally:
+        await client.aclose()
 
 
-def test_request_exhausts_retries_and_raises(monkeypatch):
+@pytest.mark.asyncio
+async def test_request_exhausts_retries_and_raises(monkeypatch):
     """Retryable status repeated max_retries times raises RuntimeError."""
+    monkeypatch.setattr(main.asyncio, "sleep", _no_sleep)
+
     client = make_client_for_request_tests(monkeypatch)
+    try:
+        client.ratelimiter.wait = AsyncMock(return_value=None)
 
-    client.session.request = Mock(side_effect=[FakeResponse(500)] * client.cfg.max_retries)
+        client._client.request = AsyncMock(side_effect=[FakeResponse(500)] * client.cfg.max_retries)
 
-    with pytest.raises(RuntimeError):
-        client._request("GET", "/x", correlation_id="cid-3")
+        with pytest.raises(RuntimeError):
+            await client._request("GET", "/x", correlation_id="cid-3")
 
-    assert client.session.request.call_count == client.cfg.max_retries
+        assert client._client.request.call_count == client.cfg.max_retries
+    finally:
+        await client.aclose()
 
 
 def test_is_valid_email_trims_whitespace():
@@ -292,19 +326,20 @@ class PollingClient:
         self.cfg = cfg
         self.calls = 0
 
-    def start_search(self, term: str, correlation_id: str) -> str:
+    async def start_search(self, term: str, correlation_id: str) -> str:
         return "search-1"
 
-    def fetch_results(self, search_id: str, correlation_id: str, limit: int, offset: int):
+    async def fetch_results(self, search_id: str, correlation_id: str, limit: int, offset: int):
         self.calls += 1
         if self.calls == 1:
             return {"records": []}  # empty first poll
         return {"records": [{"name": "https://example.com/leak"}]}  # success second poll
 
 
-def test_screen_email_polls_until_records_found(monkeypatch):
+@pytest.mark.asyncio
+async def test_screen_email_polls_until_records_found(monkeypatch):
     """If first poll is empty, it should poll again until records appear."""
-    monkeypatch.setattr(main.time, "sleep", lambda _: None)
+    monkeypatch.setattr(main.asyncio, "sleep", _no_sleep)
 
     cfg = main.IntelXConfig(
         base_url="https://example.test",
@@ -323,47 +358,58 @@ def test_screen_email_polls_until_records_found(monkeypatch):
         buckets=[],
         result_poll_attempts=3,
         result_poll_initial_delay_seconds=0.0,
+        max_concurrency=5,
     )
 
     client = PollingClient(cfg)
     logger = main.setup_logger("INFO")
 
-    res = main.screen_email(client, "test@example.com", logger)
+    res = await main.screen_email(client, "test@example.com", logger)
     assert res.breached is True
     assert "example.com" in res.site_where_breached
     assert client.calls == 2  # proves it polled again
 
 
-def test_request_does_not_retry_on_non_retry_status(monkeypatch):
+@pytest.mark.asyncio
+async def test_request_does_not_retry_on_non_retry_status(monkeypatch):
     """Non-retryable status codes should return immediately."""
+    monkeypatch.setattr(main.asyncio, "sleep", _no_sleep)
+
     client = make_client_for_request_tests(monkeypatch)
+    try:
+        client.ratelimiter.wait = AsyncMock(return_value=None)
+        client._client.request = AsyncMock(side_effect=[FakeResponse(404)])
 
-    client.session.request = Mock(side_effect=[FakeResponse(404)])
+        resp = await client._request("GET", "/x", correlation_id="cid-404")
+        assert resp.status_code == 404
+        assert client._client.request.call_count == 1
+    finally:
+        await client.aclose()
 
-    resp = client._request("GET", "/x", correlation_id="cid-404")
-    assert resp.status_code == 404
-    assert client.session.request.call_count == 1
 
-
-def test_request_honours_retry_after_header(monkeypatch):
+@pytest.mark.asyncio
+async def test_request_honours_retry_after_header(monkeypatch):
     """Retry-After header should influence sleep duration (sleep is patched here)."""
     client = make_client_for_request_tests(monkeypatch)
+    try:
+        client.ratelimiter.wait = AsyncMock(return_value=None)
 
-    r1 = FakeResponse(429)
-    r1.headers["Retry-After"] = "7"
-    r2 = FakeResponse(200)
+        r1 = FakeResponse(429)
+        r1.headers["Retry-After"] = "7"
+        r2 = FakeResponse(200)
 
-    client.session.request = Mock(side_effect=[r1, r2])
+        client._client.request = AsyncMock(side_effect=[r1, r2])
 
-    sleep_spy = Mock()
-    monkeypatch.setattr(main.time, "sleep", sleep_spy)
-    client.ratelimiter.wait = lambda: None
+        sleep_spy = AsyncMock(return_value=None)
+        monkeypatch.setattr(main.asyncio, "sleep", sleep_spy)
 
-    resp = client._request("GET", "/x", correlation_id="cid-ra")
-    assert resp.status_code == 200
+        resp = await client._request("GET", "/x", correlation_id="cid-ra")
+        assert resp.status_code == 200
 
-    # proves it tried to sleep because of retry-after
-    assert sleep_spy.call_count >= 1
+        # proves it tried to sleep because of retry-after
+        assert sleep_spy.call_count >= 1
+    finally:
+        await client.aclose()
 
 
 def test_build_analyst_summary_counts_and_top_sources():

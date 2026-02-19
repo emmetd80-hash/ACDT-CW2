@@ -8,7 +8,7 @@ The tool is designed Antrim Logistics Company (ALC), that screens new and existi
 
 Once provided a CSV file of email addresses, the application will:
 
-1. Screen each email against the IntelX API
+1. Screen each email against the IntelX API concurrently using asynchronous requests
 
 2. Check whether the email appears in breach records
 
@@ -19,6 +19,15 @@ Once provided a CSV file of email addresses, the application will:
     - A detailed results CSV
     - A concise analyst summary CSV
     - A bar chart (PNG) of top breach sources
+
+## **Asynchronous Architecture**
+
+The application uses Python’s asyncio framework and the httpx.AsyncClient library to perform non-blocking HTTP requests to the IntelX API.
+This enables:
+
+    Concurrent screening of multiple email addresses
+    Improved runtime performance for large input datasets
+    Controlled concurrency using rate limiting and retry/backoff logic
 
 ## **Outputs**
 
@@ -56,11 +65,13 @@ Example contents of breach_summary.csv:
     | breached_emails | 2     |
     | unique_sources  | 2     |
 
-Top breached sources:
+    Top breached sources:
+
     | domain      | count |
     | ----------- | ----- |
     | example.com | 2     |
     | foo.com     | 1     |
+
 
 
 3. Breach Source Chart
@@ -81,7 +92,7 @@ No real client email addresses or personal identifiers are included in this docu
 
 Layout:
     
-    - main.py (main application logic)
+    - main.py (async application logic and IntelX client)
     - config.yml (Application configuration)
     - email_list.csv (Input file)
     - tests/ - (Unit tests "test_main.py")
@@ -91,13 +102,14 @@ Layout:
 ## **Requirements**
 
 Python 3.12+
-requests
+httpx
 pyyaml
 matplotlib
 
 **Development / Testing Requirements**
 
 pytest
+pytest-asyncio
 ruff
 black
 
@@ -137,6 +149,7 @@ After entering the required environment variables and changing to the projects d
 
     - python main.py
 
+The application internally runs an asynchronous event loop to process multiple email checks efficiently.
 On completion, if successful the output CSV files and chart will be written to the projects location.
 
 # **Docker Usage**
@@ -171,6 +184,8 @@ Run tests locally with:
     
     - python -m pytest -v .\tests\test_main.py
 
+Some tests use asynchronous execution and require pytest-asyncio (included in requirements-dev.txt).
+
 # **Continuous Integration (CI)**
 
 The project includes a GitHub Actions CI pipeline (ci.yml) which runs on every push and pull requests
@@ -179,7 +194,7 @@ The Pipeline performs the following:
 1. Dependency installation
 2. Linting with Ruff
 3. Formatting checks with Black
-4. Execution of all unit tests using Pytest
+4. Execution of all unit tests (including async tests) using Pytest
 
 A build will fails if any of the above steps fail.
 
