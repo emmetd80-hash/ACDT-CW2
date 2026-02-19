@@ -52,8 +52,8 @@ def test_read_emails_from_csv_missing_file_raises(tmp_path: Path):
 
 def test_write_results_csv_writes_file_in_tests_dir(tmp_path: Path):
     """Writes expected header + rows to a CSV file."""
-    # Use tmp_path to avoid leaving files behind, but keep test name identical.
-    out = tmp_path / "test_output_results.csv"
+    tests_dir = Path(__file__).resolve().parent
+    out = tests_dir / "test_output_results.csv"
 
     results = [
         main.ScreenResult("a@example.com", True, ["example.com"]),
