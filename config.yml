@@ -5,7 +5,7 @@ intelx:
   api_key_env: "INTELX_API_KEY"
 
   requests_per_second: 2.0
-
+  max_concurrency: 5
   timeout_connect: 5
   timeout_read: 25
 

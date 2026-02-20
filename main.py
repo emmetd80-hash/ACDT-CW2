@@ -16,6 +16,7 @@ Environment variables:
 Async notes:
   - Uses httpx.AsyncClient for non-blocking HTTP calls
   - Uses asyncio for polling + backoff + concurrency
+  - Asunc rate limiter to ensure requests per second stay within the configured limit
 """
 
 # Library Imports
@@ -78,6 +79,11 @@ def setup_logger(level: str) -> logging.Logger:
 def log_kv(logger: logging.Logger, level: int, msg: str, **fields: Any) -> None:
     """
     Log a structured JSON message.
+    
+    Output format
+    -------------
+    A single line JSON object:
+      {"msg":"startup","timestamp":"...","input_csv":"..."}
     """
     payload = {"msg": msg, **fields}
     logger.log(level, json.dumps(payload, ensure_ascii=False))
@@ -115,6 +121,9 @@ class IntelXConfig:
 
 @dataclass(frozen=True)
 class AppConfig:
+    """
+    App-level configuration (loaded from config.yml).
+    """
     log_level: str
     user_agent: str
 
@@ -122,6 +131,15 @@ class AppConfig:
 def load_config(path: Path) -> Tuple[IntelXConfig, AppConfig]:
     """
     Load IntelX and application configuration from YAML.
+    
+    Parameters
+    ----------
+    path:
+        Path to config.yml.
+
+    Returns
+    -------
+    (IntelXConfig, AppConfig)
     """
     if not path.exists():
         raise FileNotFoundError(f"config.yml not found at: {path}")
@@ -160,14 +178,14 @@ def load_config(path: Path) -> Tuple[IntelXConfig, AppConfig]:
     return intelx_cfg, app_cfg
 
 
-# Helpers
+# Helper functions
 def is_valid_email(email: str) -> bool:
-    """Check whether an email address looks valid using a practical regex."""
+    """Validate that a string email is an email address"""
     return bool(EMAIL_REGEX.match(email.strip()))
 
 
 def correlation_id_for(email: str) -> str:
-    """Generate a stable, privacy-preserving correlation id for logging."""
+    """Generate a privacy-preserving correlation id for logging."""
     digest = hashlib.sha256(email.strip().lower().encode("utf-8")).hexdigest()
     return digest[:12]
 
@@ -197,7 +215,13 @@ def extract_source_domain(item: Dict[str, Any]) -> Optional[str]:
 # Analyst summary (top sources + counts)
 def build_analyst_summary(results: Sequence["ScreenResult"], *, top_n: int = 10) -> Dict[str, Any]:
     """
-    Build a concise summary for analysts.
+    Produce a small, analyst-friendly summary from the full results list.
+
+    Metrics included:
+    - total_emails: number of inputs processed
+    - breached_emails: number flagged as breached
+    - unique_sources: how many unique source domains were observed
+    - top_sources: top N domains with counts (count = number of affected emails)
     """
     total = len(results)
     breached_count = sum(1 for r in results if r.breached)
@@ -224,6 +248,11 @@ def build_analyst_summary(results: Sequence["ScreenResult"], *, top_n: int = 10)
 def write_summary_csv(path: Path, summary: Dict[str, Any]) -> None:
     """
     Write an analyst-friendly summary CSV to disk.
+
+    Format:
+    - Key metrics first (metric, value)
+    - Blank row
+    - Top sources table (domain, count)
     """
     with open(path, "w", encoding="utf-8", newline="") as f:
         writer = csv.writer(f)
@@ -278,6 +307,7 @@ class IntelXClient:
         self.app = app
         self.logger = logger
 
+        # API key must be required
         api_key = os.getenv(cfg.api_key_env, "").strip()
         if not api_key:
             raise RuntimeError(f"Missing API key. Set environment variable {cfg.api_key_env}.")
@@ -295,6 +325,7 @@ class IntelXClient:
             pool=cfg.timeout_read,
         )
 
+        # Rate limiter to ensure requests per second are minimal
         self.ratelimiter = AsyncRateLimiter(cfg.requests_per_second)
 
         # Create client once and reuse connections
@@ -303,6 +334,9 @@ class IntelXClient:
         )
 
     async def aclose(self) -> None:
+        """
+        Close the underlying HTTP client.
+        """
         await self._client.aclose()
 
     async def _request(
@@ -316,6 +350,14 @@ class IntelXClient:
     ) -> httpx.Response:
         """
         Make an async HTTP request with retry/backoff handling.
+
+        Retries occur for:
+        - Transient status codes (cfg.retry_on_status), e.g. 429 or 5xx
+        - Network/timeout exceptions raised by httpx
+
+        Backoff behaviour:
+        - Starts at cfg.backoff_initial_seconds
+        - Doubles each retry up to cfg.backoff_max_seconds
         """
         url = f"{self.cfg.base_url}{path}"
         backoff = self.cfg.backoff_initial_seconds
@@ -337,6 +379,7 @@ class IntelXClient:
                     method=method, url=path, params=params, json=json_body
                 )
 
+                # Retry on configured statuses
                 if resp.status_code in self.cfg.retry_on_status:
                     retry_after = resp.headers.get("Retry-After")
                     if retry_after:
@@ -382,6 +425,21 @@ class IntelXClient:
         raise RuntimeError(f"HTTP request failed after retries: {method} {url} ({last_exc})")
 
     async def start_search(self, term: str, correlation_id: str) -> str:
+        """
+        Start a search for a term (email) and return the IntelX search id.
+
+        Parameters
+        ----------
+        term:
+            The search term (email address).
+        correlation_id:
+            Log correlation id used to link request/response logs.
+
+        Returns
+        -------
+        search_id:
+            A string id required for polling /intelligent/search/result.
+        """
         payload = {
             "term": term,
             "buckets": self.cfg.buckets,
@@ -418,6 +476,20 @@ class IntelXClient:
         limit: int,
         offset: int,
     ) -> Dict[str, Any]:
+        """
+        Fetch search results for a previously created search id.
+
+        Parameters
+        ----------
+        search_id:
+            The id returned by start_search().
+        limit / offset:
+            Pagination controls; you currently fetch only the first page.
+
+        Returns
+        -------
+        Parsed JSON response.
+        """
         resp = await self._request(
             "GET",
             "/intelligent/search/result",
@@ -434,8 +506,16 @@ class IntelXClient:
 class ScreenResult:
     """
     Result of screening a single email address.
-    """
 
+    Fields
+    ------
+    email_address:
+        The original email string from the input CSV.
+    breached:
+        True if any records/sources were found; otherwise False.
+    site_where_breached:
+        De-duplicated list of extracted source domains for analyst reporting.
+    """
     email_address: str
     breached: bool
     site_where_breached: List[str]
@@ -443,7 +523,16 @@ class ScreenResult:
 
 async def screen_email(client: IntelXClient, email: str, logger: logging.Logger) -> ScreenResult:
     """
-    Screen a single email address against IntelX (async).
+    Screen a single email address against IntelX.
+
+    Steps
+    -----
+    1) Validate email format early (avoid wasted API calls).
+    2) Start IntelX search -> returns a search id.
+    3) Poll for results (records may not be ready immediately).
+       - Delay starts small and doubles each attempt up to backoff_max_seconds.
+    4) Extract source domains from returned record items.
+    5) Return a ScreenResult with breached flag + unique sources list.
     """
     cid = correlation_id_for(email)
 
@@ -451,11 +540,13 @@ async def screen_email(client: IntelXClient, email: str, logger: logging.Logger)
         log_kv(logger, logging.ERROR, "invalid_email", cid=cid, email=email)
         return ScreenResult(email_address=email, breached=False, site_where_breached=[])
 
+    #Initiate the search, IntelX returns an Id used to return results
     search_id = await client.start_search(email, correlation_id=cid)
 
     delay = client.cfg.result_poll_initial_delay_seconds
     last_data: Dict[str, Any] = {}
 
+    # Poll a limited amount of times
     for _ in range(client.cfg.result_poll_attempts):
         await asyncio.sleep(delay)
 
@@ -471,6 +562,7 @@ async def screen_email(client: IntelXClient, email: str, logger: logging.Logger)
         if isinstance(records, list) and records:
             break
 
+        # Backoff for polling         
         delay = min(delay * 2.0, client.cfg.backoff_max_seconds)
 
     records = last_data.get("records") or last_data.get("items") or []
@@ -492,6 +584,7 @@ async def screen_email(client: IntelXClient, email: str, logger: logging.Logger)
 
     breached = bool(records) or bool(uniq_sources)
 
+    # Log each email outcome
     log_kv(
         logger,
         logging.INFO,
@@ -510,10 +603,11 @@ def read_emails_from_csv(path: str) -> List[str]:
     """
     Read email addresses from a CSV file.
 
-    Requirements/assumptions:
-      - The CSV has a header row (skipped).
-      - Email addresses are in the first column.
-      - Empty rows are ignored.
+    Expected format
+    ---------------
+    - First row is a header (skipped).
+    - Email addresses are in the first column.
+    - Empty rows are ignored.
     """
     if not path or not os.path.exists(path):
         raise FileNotFoundError(f"Input CSV not found: {path}")
@@ -533,7 +627,16 @@ def read_emails_from_csv(path: str) -> List[str]:
 
 def write_results_csv(path: Path, results: Sequence[ScreenResult]) -> None:
     """
-    Write results to CSV.
+    Write detailed per-email results to a CSV file.
+
+    Columns
+    -------
+    email_address:
+        Original input email
+    breached:
+        True/False
+    breached_sources:
+        Semicolon-separated list of source domains (may be empty)
     """
     with open(path, "w", encoding="utf-8", newline="") as f:
         writer = csv.writer(f)
@@ -558,6 +661,7 @@ def write_breach_chart_png(
         for src in r.site_where_breached:
             counts[src] = counts.get(src, 0) + 1
 
+    # Avoid producing an empty chart file.
     if not counts:
         return
 
@@ -592,6 +696,7 @@ async def run_async() -> int:
     intelx_cfg, app_cfg = load_config(CONFIG_PATH)
     logger = setup_logger(app_cfg.log_level)
 
+    # Startup log
     log_kv(
         logger,
         logging.INFO,
@@ -606,6 +711,7 @@ async def run_async() -> int:
         max_concurrency=intelx_cfg.max_concurrency,
     )
 
+    # Read input emails. Fail early if CSV missing/invalid.
     try:
         emails = read_emails_from_csv(INPUT_EMAIL_CSV)
     except Exception as exc:
@@ -616,15 +722,22 @@ async def run_async() -> int:
         log_kv(logger, logging.ERROR, "no_emails_found", input_csv=INPUT_EMAIL_CSV)
         return 2
 
+    # Create IntelX Client
     try:
         client = IntelXClient(intelx_cfg, app_cfg, logger)
     except Exception as exc:
         log_kv(logger, logging.ERROR, "client_init_failed", error=str(exc))
         return 2
 
+    # Semaphore bounds the number of emails being processed concurrently
     sem = asyncio.Semaphore(max(1, intelx_cfg.max_concurrency))
 
     async def guarded_screen(email: str) -> ScreenResult:
+        """
+        Screen one email with:
+        - a semaphore to bound concurrent work
+        - error handling so one failure doesn't cancel the whole run
+        """
         async with sem:
             try:
                 return await screen_email(client, email, logger)
@@ -651,6 +764,7 @@ async def run_async() -> int:
         top_sources=summary["top_sources"],
     )
 
+    # Summary CSV 
     try:
         summary_path = OUTPUT_CSV.with_name("breach_summary.csv")
         write_summary_csv(summary_path, summary)

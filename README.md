@@ -25,9 +25,9 @@ Once provided a CSV file of email addresses, the application will:
 The application uses Python’s asyncio framework and the httpx.AsyncClient library to perform non-blocking HTTP requests to the IntelX API.
 This enables:
 
-    Concurrent screening of multiple email addresses
-    Improved runtime performance for large input datasets
-    Controlled concurrency using rate limiting and retry/backoff logic
+* Concurrent screening of multiple email addresses
+* Improved runtime performance for large input datasets
+* Controlled concurrency using rate limiting and retry/backoff logic
 
 ## **Outputs**
 
