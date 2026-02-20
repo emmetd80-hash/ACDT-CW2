@@ -79,7 +79,7 @@ def setup_logger(level: str) -> logging.Logger:
 def log_kv(logger: logging.Logger, level: int, msg: str, **fields: Any) -> None:
     """
     Log a structured JSON message.
-    
+
     Output format
     -------------
     A single line JSON object:
@@ -124,6 +124,7 @@ class AppConfig:
     """
     App-level configuration (loaded from config.yml).
     """
+
     log_level: str
     user_agent: str
 
@@ -131,7 +132,7 @@ class AppConfig:
 def load_config(path: Path) -> Tuple[IntelXConfig, AppConfig]:
     """
     Load IntelX and application configuration from YAML.
-    
+
     Parameters
     ----------
     path:
@@ -516,6 +517,7 @@ class ScreenResult:
     site_where_breached:
         De-duplicated list of extracted source domains for analyst reporting.
     """
+
     email_address: str
     breached: bool
     site_where_breached: List[str]
@@ -540,7 +542,7 @@ async def screen_email(client: IntelXClient, email: str, logger: logging.Logger)
         log_kv(logger, logging.ERROR, "invalid_email", cid=cid, email=email)
         return ScreenResult(email_address=email, breached=False, site_where_breached=[])
 
-    #Initiate the search, IntelX returns an Id used to return results
+    # Initiate the search, IntelX returns an Id used to return results
     search_id = await client.start_search(email, correlation_id=cid)
 
     delay = client.cfg.result_poll_initial_delay_seconds
@@ -562,7 +564,7 @@ async def screen_email(client: IntelXClient, email: str, logger: logging.Logger)
         if isinstance(records, list) and records:
             break
 
-        # Backoff for polling         
+        # Backoff for polling
         delay = min(delay * 2.0, client.cfg.backoff_max_seconds)
 
     records = last_data.get("records") or last_data.get("items") or []
@@ -764,7 +766,7 @@ async def run_async() -> int:
         top_sources=summary["top_sources"],
     )
 
-    # Summary CSV 
+    # Summary CSV
     try:
         summary_path = OUTPUT_CSV.with_name("breach_summary.csv")
         write_summary_csv(summary_path, summary)
