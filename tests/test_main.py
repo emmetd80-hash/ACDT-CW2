@@ -24,10 +24,7 @@ async def _no_sleep(_: float) -> None:
 def test_read_emails_from_csv_reads_email_address_column(tmp_path: Path):
     csv_path = tmp_path / "emails.csv"
     csv_path.write_text(
-        "email_address\n"
-        "test@example.com\n"
-        "not-an-email\n"
-        "alice@example.org\n",
+        "email_address\n" "test@example.com\n" "not-an-email\n" "alice@example.org\n",
         encoding="utf-8",
     )
 
@@ -200,9 +197,7 @@ async def test_request_retries_on_429_then_succeeds(monkeypatch):
     try:
         client.ratelimiter.wait = AsyncMock(return_value=None)
 
-        client._client.request = AsyncMock(
-            side_effect=[FakeResponse(429), FakeResponse(200)]
-        )
+        client._client.request = AsyncMock(side_effect=[FakeResponse(429), FakeResponse(200)])
 
         resp = await client._request("GET", "/x", correlation_id="cid-1")
 
@@ -225,9 +220,7 @@ async def test_request_retries_on_network_error_then_succeeds(monkeypatch):
         req = httpx.Request("GET", "https://example.test/x")
         err = httpx.ConnectError("error", request=req)
 
-        client._client.request = AsyncMock(
-            side_effect=[err, FakeResponse(200)]
-        )
+        client._client.request = AsyncMock(side_effect=[err, FakeResponse(200)])
 
         resp = await client._request("GET", "/x", correlation_id="cid-2")
 
@@ -247,9 +240,7 @@ async def test_request_exhausts_retries_and_raises(monkeypatch):
     try:
         client.ratelimiter.wait = AsyncMock(return_value=None)
 
-        client._client.request = AsyncMock(
-            side_effect=[FakeResponse(500)] * client.cfg.max_retries
-        )
+        client._client.request = AsyncMock(side_effect=[FakeResponse(500)] * client.cfg.max_retries)
 
         with pytest.raises(RuntimeError):
             await client._request("GET", "/x", correlation_id="cid-3")
@@ -295,10 +286,7 @@ def test_extract_source_domain_bad_url_returns_none():
 def test_read_emails_from_csv_strips_and_keeps_order(tmp_path: Path):
     csv_path = tmp_path / "emails.csv"
     csv_path.write_text(
-        "email_address\n"
-        "  a@example.com  \n"
-        "\n"
-        "b@example.com\n",
+        "email_address\n" "  a@example.com  \n" "\n" "b@example.com\n",
         encoding="utf-8",
     )
 

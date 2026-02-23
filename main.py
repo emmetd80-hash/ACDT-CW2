@@ -59,6 +59,7 @@ MEDIA_TYPE_MAP = {
     34: "Archive",
 }
 
+
 # Logging (structured JSON)
 def setup_logger(level: str) -> logging.Logger:
     """
@@ -669,9 +670,7 @@ def write_results_csv(path: Path, results: Sequence[ScreenResult]) -> None:
     """
     with open(path, "w", encoding="utf-8", newline="") as f:
         writer = csv.writer(f)
-        writer.writerow(
-            ["email_address", "breached", "breach_media_summary", "breached_sources"]
-        )
+        writer.writerow(["email_address", "breached", "breach_media_summary", "breached_sources"])
         for r in results:
             writer.writerow(
                 [
