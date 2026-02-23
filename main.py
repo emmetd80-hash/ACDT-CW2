@@ -50,6 +50,14 @@ OUTPUT_CSV = Path(os.getenv("OUTPUT_CSV", str(SCRIPT_DIR / "output_result1.csv")
 # Simple email validation regex
 EMAIL_REGEX = re.compile(r"^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+$")
 
+# Media type mapping
+MEDIA_TYPE_MAP = {
+    24: "Text File",
+    27: "Database File",
+    32: "CSV File",
+    33: "Email File",
+    34: "Archive",
+}
 
 # Logging (structured JSON)
 def setup_logger(level: str) -> logging.Logger:
@@ -196,16 +204,23 @@ def extract_source_domain(item: Dict[str, Any]) -> Optional[str]:
     Attempt to extract a source domain from an IntelX record item.
     """
     name = str(item.get("name", "")).strip()
+
     if not name:
         return None
 
+    # URL handling
     if name.startswith("http://") or name.startswith("https://"):
         try:
             host = urlparse(name).hostname
-            return host.lower() if host else None
+            if host:
+                return host.lower()
         except Exception:
-            return None
+            pass
 
+        # Important: if URL has no hostname → explicitly fail
+        return None
+
+    # Domain token extraction from text
     m = re.search(r"([A-Za-z0-9-]+\.[A-Za-z]{2,})", name)
     if m:
         return m.group(1).lower()
@@ -521,9 +536,10 @@ class ScreenResult:
     email_address: str
     breached: bool
     site_where_breached: List[str]
+    media_summary: str
 
 
-async def screen_email(client: IntelXClient, email: str, logger: logging.Logger) -> ScreenResult:
+async def screen_email(client, email: str, logger: logging.Logger) -> ScreenResult:
     """
     Screen a single email address against IntelX.
 
@@ -536,19 +552,17 @@ async def screen_email(client: IntelXClient, email: str, logger: logging.Logger)
     4) Extract source domains from returned record items.
     5) Return a ScreenResult with breached flag + unique sources list.
     """
-    cid = correlation_id_for(email)
+    cid = hashlib.sha256(email.strip().lower().encode("utf-8")).hexdigest()[:12]
 
-    if not is_valid_email(email):
-        log_kv(logger, logging.ERROR, "invalid_email", cid=cid, email=email)
-        return ScreenResult(email_address=email, breached=False, site_where_breached=[])
+    if not EMAIL_REGEX.match(email.strip()):
+        logger.error("invalid_email")
+        return ScreenResult(email, False, [], "")
 
-    # Initiate the search, IntelX returns an Id used to return results
     search_id = await client.start_search(email, correlation_id=cid)
 
     delay = client.cfg.result_poll_initial_delay_seconds
     last_data: Dict[str, Any] = {}
 
-    # Poll a limited amount of times
     for _ in range(client.cfg.result_poll_attempts):
         await asyncio.sleep(delay)
 
@@ -564,40 +578,52 @@ async def screen_email(client: IntelXClient, email: str, logger: logging.Logger)
         if isinstance(records, list) and records:
             break
 
-        # Backoff for polling
         delay = min(delay * 2.0, client.cfg.backoff_max_seconds)
 
     records = last_data.get("records") or last_data.get("items") or []
     sources: List[str] = []
 
+    # Count media file types
+    media_counts: Dict[str, int] = {}
+
     if isinstance(records, list):
         for item in records:
             if isinstance(item, dict):
-                dom = extract_source_domain(item)
+                dom = None
+                name = str(item.get("name", "")).strip()
+                if name.startswith("http://") or name.startswith("https://"):
+                    try:
+                        dom = urlparse(name).hostname
+                        if dom:
+                            dom = dom.lower()
+                    except Exception:
+                        dom = None
+                else:
+                    m = re.search(r"([A-Za-z0-9-]+\.[A-Za-z]{2,})", name)
+                    if m:
+                        dom = m.group(1).lower()
+
                 if dom:
                     sources.append(dom)
 
-    seen = set()
-    uniq_sources: List[str] = []
-    for s in sources:
-        if s not in seen:
-            seen.add(s)
-            uniq_sources.append(s)
+                media_code = item.get("media")
+                label = MEDIA_TYPE_MAP.get(media_code, f"Unknown({media_code})")
+                media_counts[label] = media_counts.get(label, 0) + 1
 
-    breached = bool(records) or bool(uniq_sources)
-
-    # Log each email outcome
-    log_kv(
-        logger,
-        logging.INFO,
-        "email_screened",
-        cid=cid,
-        breached=breached,
-        sources=len(uniq_sources),
-        raw_results=len(records) if isinstance(records, list) else 0,
+    media_summary_str = ", ".join(
+        f"{count} {label}{'s' if count > 1 else ''}"
+        for label, count in sorted(media_counts.items(), key=lambda x: -x[1])
     )
 
-    return ScreenResult(email_address=email, breached=breached, site_where_breached=uniq_sources)
+    uniq_sources = list(dict.fromkeys(sources))
+    breached = bool(records) or bool(uniq_sources)
+
+    return ScreenResult(
+        email_address=email,
+        breached=breached,
+        site_where_breached=uniq_sources,
+        media_summary=media_summary_str,
+    )
 
 
 # CSV handling
@@ -627,6 +653,7 @@ def read_emails_from_csv(path: str) -> List[str]:
     return emails
 
 
+# CSV handling
 def write_results_csv(path: Path, results: Sequence[ScreenResult]) -> None:
     """
     Write detailed per-email results to a CSV file.
@@ -642,19 +669,25 @@ def write_results_csv(path: Path, results: Sequence[ScreenResult]) -> None:
     """
     with open(path, "w", encoding="utf-8", newline="") as f:
         writer = csv.writer(f)
-        writer.writerow(["email_address", "breached", "breached_sources"])
+        writer.writerow(
+            ["email_address", "breached", "breach_media_summary", "breached_sources"]
+        )
         for r in results:
             writer.writerow(
-                [r.email_address, str(bool(r.breached)), ";".join(r.site_where_breached)]
+                [
+                    r.email_address,
+                    str(bool(r.breached)),
+                    r.media_summary,
+                    ";".join(r.site_where_breached),
+                ]
             )
 
 
-# Chart Output
 def write_breach_chart_png(
-    output_path: Path, results: Sequence[ScreenResult], *, top_n: int = 10
+    output_path: Path, results: Sequence[ScreenResult], *, top_n: int = 6
 ) -> None:
     """
-    Create a bar chart PNG of the top breach sources.
+    Generate a visual summary of breach source distribution as a donut chart PNG.
     """
     counts: Dict[str, int] = {}
     for r in results:
@@ -668,15 +701,23 @@ def write_breach_chart_png(
         return
 
     top = sorted(counts.items(), key=lambda kv: kv[1], reverse=True)[:top_n]
+
     labels = [k for k, _ in top]
     values = [v for _, v in top]
 
-    plt.figure(figsize=(10, 5))
-    plt.bar(labels, values)
-    plt.title("Top breach sources (count of affected emails)")
-    plt.xlabel("Source")
-    plt.ylabel("Count")
-    plt.xticks(rotation=45, ha="right")
+    fig, ax = plt.subplots(figsize=(7, 7))
+    wedges, texts = ax.pie(values, wedgeprops=dict(width=0.4), startangle=90)
+
+    ax.set_title("Distribution of Breach Sources")
+
+    ax.legend(
+        wedges,
+        labels,
+        title="Source",
+        loc="center left",
+        bbox_to_anchor=(1, 0, 0.5, 1),
+    )
+
     plt.tight_layout()
     plt.savefig(output_path, dpi=200)
     plt.close()

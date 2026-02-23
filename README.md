@@ -18,7 +18,7 @@ Once provided a CSV file of email addresses, the application will:
 
     - A detailed results CSV
     - A concise analyst summary CSV
-    - A bar chart (PNG) of top breach sources
+    - A breach source chart (PNG) visualising the most common domains
 
 ## **Asynchronous Architecture**
 
@@ -33,17 +33,31 @@ This enables:
 
 When the program runs successfully, it generates the following files
 
-1. Results CSV
-File: "output_result1.csv"
-Contains one row per email: "email_address", "breached" (True/False), "site_where_breached" (semicolon-separated)
+1. Results CSV  
+File: "output_result1.csv"  
+
+Contains one row per email with the following columns:
+
+- email_address  
+- breached (True/False)  
+- breach_media_summary (human-readable summary of file/media types returned by IntelX)  
+- breached_sources (semicolon-separated list of extracted source domains)
 
 2. Analyst Summary CSV
 File: "breach_summary.csv"
-Contains: Total emails processed, Number of breach sources, Number of unique breach sources and Top breach sources with counts
+
+Contains screening metrics followed by a ranked table of breach sources.
+
+- total_emails  
+- breached_emails 
+- unique_sources 
+- breached_sources (semicolon-separated list of extracted source domains)
+- top_breached_sources with count
 
 3. Chart Output
 File: "breach_summary_png"
-Contains A bar chart showing the most common breach sources.
+
+Visual representation of the most common breach sources identified during screening.
 
 ## **Example Results**
 

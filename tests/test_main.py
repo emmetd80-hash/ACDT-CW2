@@ -1,12 +1,6 @@
 # ruff: noqa: E402
 """
 Unit tests for main.py (ALC Breach Screener).
-
-These tests cover:
-  - CSV input/output helpers
-  - screen_email parsing + polling behaviour (using fakes/mocks, no real API calls)
-  - IntelXClient._request retry behaviour (using mocked HTTP responses)
-  - Small helper functions (email validation, correlation id, domain extraction)
 """
 
 import sys
@@ -17,25 +11,23 @@ from unittest.mock import AsyncMock, Mock
 import httpx
 import pytest
 
-# Repo root so "import main" works in test runs
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
 
 import main  # noqa: I001
 
 
-# ----------------------------
-# Shared async helpers
-# ----------------------------
 async def _no_sleep(_: float) -> None:
     return None
 
 
 def test_read_emails_from_csv_reads_email_address_column(tmp_path: Path):
-    """Reads first column (after header) and preserves order."""
     csv_path = tmp_path / "emails.csv"
     csv_path.write_text(
-        "email_address\n" "test@example.com\n" "not-an-email\n" "alice@example.org\n",
+        "email_address\n"
+        "test@example.com\n"
+        "not-an-email\n"
+        "alice@example.org\n",
         encoding="utf-8",
     )
 
@@ -44,33 +36,28 @@ def test_read_emails_from_csv_reads_email_address_column(tmp_path: Path):
 
 
 def test_read_emails_from_csv_missing_file_raises(tmp_path: Path):
-    """Missing input file should raise FileNotFoundError."""
     missing = tmp_path / "missing.csv"
     with pytest.raises(FileNotFoundError):
         main.read_emails_from_csv(str(missing))
 
 
 def test_write_results_csv_writes_file_in_tests_dir(tmp_path: Path):
-    """Writes expected header + rows to a CSV file."""
     tests_dir = Path(__file__).resolve().parent
     out = tests_dir / "test_output_results.csv"
 
     results = [
-        main.ScreenResult("a@example.com", True, ["example.com"]),
-        main.ScreenResult("b@example.com", False, []),
+        main.ScreenResult("a@example.com", True, ["example.com"], ""),
+        main.ScreenResult("b@example.com", False, [], ""),
     ]
 
     main.write_results_csv(out, results)
 
     assert out.exists()
     lines = out.read_text(encoding="utf-8").splitlines()
-    # Header must match main.write_results_csv()
-    assert lines[0] == "email_address,breached,breached_sources"
+    assert lines[0] == "email_address,breached,breach_media_summary,breached_sources"
 
 
 class FakeClient:
-    """Fake of IntelXClient used to test screen_email parsing."""
-
     def __init__(self, cfg):
         self.cfg = cfg
         self.start_calls = 0
@@ -88,7 +75,7 @@ class FakeClient:
         offset: int,
     ) -> Dict[str, Any]:
         self.fetch_calls += 1
-        # Simulate IntelX-like payload
+
         return {
             "records": [
                 {"name": "https://verifications.io/leak"},
@@ -100,7 +87,6 @@ class FakeClient:
 
 @pytest.mark.asyncio
 async def test_screen_email_parses_sources(monkeypatch):
-    """Extracts domains from URL/text records and marks breached when records exist."""
     monkeypatch.setattr(main.asyncio, "sleep", _no_sleep)
 
     cfg = main.IntelXConfig(
@@ -137,7 +123,6 @@ async def test_screen_email_parses_sources(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_screen_email_invalid_email_short_circuits(monkeypatch):
-    """Invalid email returns not-breached and does not call the client."""
     monkeypatch.setattr(main.asyncio, "sleep", _no_sleep)
 
     cfg = Mock()
@@ -162,7 +147,6 @@ async def test_screen_email_invalid_email_short_circuits(monkeypatch):
 
 
 class FakeResponse:
-    # Fake response compatible with IntelXClient._request.
     def __init__(
         self,
         status_code: int,
@@ -179,7 +163,6 @@ class FakeResponse:
 
 
 def make_client_for_request_tests(monkeypatch) -> main.IntelXClient:
-    """Build a real IntelXClient."""
     monkeypatch.setenv("INTELX_API_KEY", "dummy")
 
     cfg = main.IntelXConfig(
@@ -205,113 +188,117 @@ def make_client_for_request_tests(monkeypatch) -> main.IntelXClient:
     app = main.AppConfig(log_level="INFO", user_agent="test-agent")
     logger = main.setup_logger("INFO")
 
-    client = main.IntelXClient(cfg, app, logger)
-    return client
+    return main.IntelXClient(cfg, app, logger)
 
 
 @pytest.mark.asyncio
 async def test_request_retries_on_429_then_succeeds(monkeypatch):
-    """429 triggers retry; second response succeeds."""
     monkeypatch.setattr(main.asyncio, "sleep", _no_sleep)
 
     client = make_client_for_request_tests(monkeypatch)
+
     try:
         client.ratelimiter.wait = AsyncMock(return_value=None)
 
-        # Async main uses httpx.AsyncClient stored on client._client (per your async rewrite)
-        client._client.request = AsyncMock(side_effect=[FakeResponse(429), FakeResponse(200)])
+        client._client.request = AsyncMock(
+            side_effect=[FakeResponse(429), FakeResponse(200)]
+        )
 
         resp = await client._request("GET", "/x", correlation_id="cid-1")
 
         assert resp.status_code == 200
         assert client._client.request.call_count == 2
+
     finally:
         await client.aclose()
 
 
 @pytest.mark.asyncio
 async def test_request_retries_on_network_error_then_succeeds(monkeypatch):
-    """Network exception triggers retry; subsequent response succeeds."""
     monkeypatch.setattr(main.asyncio, "sleep", _no_sleep)
 
     client = make_client_for_request_tests(monkeypatch)
+
     try:
         client.ratelimiter.wait = AsyncMock(return_value=None)
 
         req = httpx.Request("GET", "https://example.test/x")
         err = httpx.ConnectError("error", request=req)
 
-        client._client.request = AsyncMock(side_effect=[err, FakeResponse(200)])
+        client._client.request = AsyncMock(
+            side_effect=[err, FakeResponse(200)]
+        )
 
         resp = await client._request("GET", "/x", correlation_id="cid-2")
 
         assert resp.status_code == 200
         assert client._client.request.call_count == 2
+
     finally:
         await client.aclose()
 
 
 @pytest.mark.asyncio
 async def test_request_exhausts_retries_and_raises(monkeypatch):
-    """Retryable status repeated max_retries times raises RuntimeError."""
     monkeypatch.setattr(main.asyncio, "sleep", _no_sleep)
 
     client = make_client_for_request_tests(monkeypatch)
+
     try:
         client.ratelimiter.wait = AsyncMock(return_value=None)
 
-        client._client.request = AsyncMock(side_effect=[FakeResponse(500)] * client.cfg.max_retries)
+        client._client.request = AsyncMock(
+            side_effect=[FakeResponse(500)] * client.cfg.max_retries
+        )
 
         with pytest.raises(RuntimeError):
             await client._request("GET", "/x", correlation_id="cid-3")
 
         assert client._client.request.call_count == client.cfg.max_retries
+
     finally:
         await client.aclose()
 
 
 def test_is_valid_email_trims_whitespace():
-    """Whitespace around email should be ignored."""
     assert main.is_valid_email("  test@example.com  ")
 
 
 def test_correlation_id_for_is_deterministic_and_12_chars():
-    """Same email (case-insensitive) keeps same 12-char correlation id."""
     cid1 = main.correlation_id_for("Test@Example.com")
     cid2 = main.correlation_id_for("test@example.com")
+
     assert cid1 == cid2
     assert len(cid1) == 12
 
 
 def test_extract_source_domain_from_url():
-    """URL hostname should be returned as the domain."""
     item = {"name": "https://sub.example.com/path/to/page"}
     assert main.extract_source_domain(item) == "sub.example.com"
 
 
 def test_extract_source_domain_from_text_domain():
-    """Domain-like tokens in text should be extracted."""
     item = {"name": "Leak posted on example.org in a forum"}
     assert main.extract_source_domain(item) == "example.org"
 
 
 def test_extract_source_domain_returns_none_when_missing_name():
-    """Missing/blank names should return None."""
     assert main.extract_source_domain({}) is None
     assert main.extract_source_domain({"name": ""}) is None
 
 
 def test_extract_source_domain_bad_url_returns_none():
-    """Bad URL with no hostname should return None."""
     item = {"name": "https://"}
     assert main.extract_source_domain(item) is None
 
 
 def test_read_emails_from_csv_strips_and_keeps_order(tmp_path: Path):
-    """Strips whitespace and preserves order; empty CSV rows are ignored."""
     csv_path = tmp_path / "emails.csv"
     csv_path.write_text(
-        "email_address\n" "  a@example.com  \n" "\n" "b@example.com\n",
+        "email_address\n"
+        "  a@example.com  \n"
+        "\n"
+        "b@example.com\n",
         encoding="utf-8",
     )
 
@@ -320,8 +307,6 @@ def test_read_emails_from_csv_strips_and_keeps_order(tmp_path: Path):
 
 
 class PollingClient:
-    """Fake client that returns empty results first, then results."""
-
     def __init__(self, cfg):
         self.cfg = cfg
         self.calls = 0
@@ -331,14 +316,15 @@ class PollingClient:
 
     async def fetch_results(self, search_id: str, correlation_id: str, limit: int, offset: int):
         self.calls += 1
+
         if self.calls == 1:
-            return {"records": []}  # empty first poll
-        return {"records": [{"name": "https://example.com/leak"}]}  # success second poll
+            return {"records": []}
+
+        return {"records": [{"name": "https://example.com/leak"}]}
 
 
 @pytest.mark.asyncio
 async def test_screen_email_polls_until_records_found(monkeypatch):
-    """If first poll is empty, it should poll again until records appear."""
     monkeypatch.setattr(main.asyncio, "sleep", _no_sleep)
 
     cfg = main.IntelXConfig(
@@ -365,32 +351,35 @@ async def test_screen_email_polls_until_records_found(monkeypatch):
     logger = main.setup_logger("INFO")
 
     res = await main.screen_email(client, "test@example.com", logger)
+
     assert res.breached is True
     assert "example.com" in res.site_where_breached
-    assert client.calls == 2  # proves it polled again
+    assert client.calls == 2
 
 
 @pytest.mark.asyncio
 async def test_request_does_not_retry_on_non_retry_status(monkeypatch):
-    """Non-retryable status codes should return immediately."""
     monkeypatch.setattr(main.asyncio, "sleep", _no_sleep)
 
     client = make_client_for_request_tests(monkeypatch)
+
     try:
         client.ratelimiter.wait = AsyncMock(return_value=None)
         client._client.request = AsyncMock(side_effect=[FakeResponse(404)])
 
         resp = await client._request("GET", "/x", correlation_id="cid-404")
+
         assert resp.status_code == 404
         assert client._client.request.call_count == 1
+
     finally:
         await client.aclose()
 
 
 @pytest.mark.asyncio
 async def test_request_honours_retry_after_header(monkeypatch):
-    """Retry-After header should influence sleep duration (sleep is patched here)."""
     client = make_client_for_request_tests(monkeypatch)
+
     try:
         client.ratelimiter.wait = AsyncMock(return_value=None)
 
@@ -404,21 +393,20 @@ async def test_request_honours_retry_after_header(monkeypatch):
         monkeypatch.setattr(main.asyncio, "sleep", sleep_spy)
 
         resp = await client._request("GET", "/x", correlation_id="cid-ra")
-        assert resp.status_code == 200
 
-        # proves it tried to sleep because of retry-after
+        assert resp.status_code == 200
         assert sleep_spy.call_count >= 1
+
     finally:
         await client.aclose()
 
 
 def test_build_analyst_summary_counts_and_top_sources():
-    """Counts totals and ranks top breach sources by frequency."""
     results = [
-        main.ScreenResult("a@example.com", True, ["x.com", "y.com"]),
-        main.ScreenResult("b@example.com", True, ["x.com"]),
-        main.ScreenResult("c@example.com", False, []),
-        main.ScreenResult("d@example.com", True, ["z.com", "x.com"]),
+        main.ScreenResult("a@example.com", True, ["x.com", "y.com"], ""),
+        main.ScreenResult("b@example.com", True, ["x.com"], ""),
+        main.ScreenResult("c@example.com", False, [], ""),
+        main.ScreenResult("d@example.com", True, ["z.com", "x.com"], ""),
     ]
 
     summary = main.build_analyst_summary(results, top_n=2)
@@ -434,7 +422,6 @@ def test_build_analyst_summary_counts_and_top_sources():
 
 
 def test_write_summary_csv_writes_expected_layout(tmp_path: Path):
-    """Summary CSV should include metrics block + top sources section."""
     summary = {
         "total_emails": 3,
         "breached_emails": 2,
@@ -465,13 +452,12 @@ def test_write_summary_csv_writes_expected_layout(tmp_path: Path):
 
 
 def test_write_breach_chart_png_creates_file_when_breaches_exist(tmp_path: Path):
-    """Creates a PNG chart file when at least one breached result exists."""
     out = tmp_path / "breach_summary.png"
 
     results = [
-        main.ScreenResult("a@example.com", True, ["example.com", "foo.com"]),
-        main.ScreenResult("b@example.com", True, ["example.com"]),
-        main.ScreenResult("c@example.com", False, []),
+        main.ScreenResult("a@example.com", True, ["example.com", "foo.com"], ""),
+        main.ScreenResult("b@example.com", True, ["example.com"], ""),
+        main.ScreenResult("c@example.com", False, [], ""),
     ]
 
     main.write_breach_chart_png(out, results, top_n=10)
@@ -484,12 +470,11 @@ def test_write_breach_chart_png_creates_file_when_breaches_exist(tmp_path: Path)
 
 
 def test_write_breach_chart_png_skips_when_no_breaches(tmp_path: Path):
-    """Does not create a chart file when no breached results are present."""
     out = tmp_path / "breach_summary.png"
 
     results = [
-        main.ScreenResult("a@example.com", False, []),
-        main.ScreenResult("b@example.com", False, []),
+        main.ScreenResult("a@example.com", False, [], ""),
+        main.ScreenResult("b@example.com", False, [], ""),
     ]
 
     main.write_breach_chart_png(out, results, top_n=10)
