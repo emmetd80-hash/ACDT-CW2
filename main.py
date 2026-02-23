@@ -686,12 +686,26 @@ def write_breach_chart_png(
     output_path: Path, results: Sequence[ScreenResult], *, top_n: int = 6
 ) -> None:
     """
-    Generate a visual summary of breach source distribution as a donut chart PNG.
+    Generate an executive-style breach summary donut chart PNG.
+
+    Features
+    --------
+    - Shows distribution of top breach sources
+    - Displays percentage breakdowns
+    - Includes total breach exposure metrics
+    - Adds generation timestamp
     """
+
+    # Count breach source occurrences
     counts: Dict[str, int] = {}
+    total_breached = 0
+
     for r in results:
         if not r.breached:
             continue
+
+        total_breached += 1
+
         for src in r.site_where_breached:
             counts[src] = counts.get(src, 0) + 1
 
@@ -699,22 +713,64 @@ def write_breach_chart_png(
     if not counts:
         return
 
+    # Select top sources
     top = sorted(counts.items(), key=lambda kv: kv[1], reverse=True)[:top_n]
 
     labels = [k for k, _ in top]
     values = [v for _, v in top]
 
+    # Exposure percentage inside chart
+    total_records = sum(values)
+    exposure_rate = (total_breached / max(len(results), 1)) * 100
+
     fig, ax = plt.subplots(figsize=(7, 7))
-    wedges, texts = ax.pie(values, wedgeprops=dict(width=0.4), startangle=90)
 
-    ax.set_title("Distribution of Breach Sources")
+    wedges, texts, autotexts = ax.pie(
+        values,
+        labels=None,
+        autopct=lambda pct: f"{pct:.1f}%",
+        pctdistance=0.75,
+        wedgeprops=dict(width=0.4),
+        startangle=90,
+    )
 
+    # Legend for source mapping
     ax.legend(
         wedges,
         labels,
-        title="Source",
+        title="Top Breach Sources",
         loc="center left",
         bbox_to_anchor=(1, 0, 0.5, 1),
+    )
+
+    # Center summary statistics
+    center_text = (
+        f"Total Emails: {len(results)}\n"
+        f"Breached: {total_breached}\n"
+        f"Exposure Rate: {exposure_rate:.1f}%"
+    )
+
+    ax.text(
+        0,
+        0,
+        center_text,
+        ha="center",
+        va="center",
+        fontsize=10,
+        fontweight="bold",
+    )
+
+    # Chart title + timestamp footer
+    timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+
+    ax.set_title("Breach Source Distribution", pad=20)
+    plt.figtext(
+        0.5,
+        0.02,
+        f"Generated: {timestamp}",
+        ha="center",
+        fontsize=8,
+        style="italic",
     )
 
     plt.tight_layout()
