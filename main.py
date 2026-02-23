@@ -720,7 +720,6 @@ def write_breach_chart_png(
     values = [v for _, v in top]
 
     # Exposure percentage inside chart
-    total_records = sum(values)
     exposure_rate = (total_breached / max(len(results), 1)) * 100
 
     fig, ax = plt.subplots(figsize=(7, 7))
