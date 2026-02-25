@@ -10,6 +10,7 @@ Secrets note:
 - The IntelX API key is NEVER stored in config.yml.
 - config.yml stores only the ENV VAR NAME that contains the key (api_key_env).
 """
+
 from __future__ import annotations
 
 import re
@@ -20,9 +21,7 @@ from typing import List, Tuple
 import yaml
 
 # Simple email validation regex
-EMAIL_REGEX = re.compile(
-    r"^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+$"
-)
+EMAIL_REGEX = re.compile(r"^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+$")
 
 # Media type mapping
 MEDIA_TYPE_MAP = {
@@ -118,9 +117,7 @@ def load_config(path: Path) -> Tuple[IntelXConfig, AppConfig]:
         max_retries=int(ix.get("max_retries", 5)),
         backoff_initial_seconds=float(ix.get("backoff_initial_seconds", 1.0)),
         backoff_max_seconds=float(ix.get("backoff_max_seconds", 20.0)),
-        retry_on_status=tuple(
-            int(x) for x in ix.get("retry_on_status", [429, 500, 502, 503, 504])
-        ),
+        retry_on_status=tuple(int(x) for x in ix.get("retry_on_status", [429, 500, 502, 503, 504])),
         max_results=int(ix.get("max_results", 40)),
         search_timeout_seconds=int(ix.get("search_timeout_seconds", 0)),
         sort=int(ix.get("sort", 2)),
