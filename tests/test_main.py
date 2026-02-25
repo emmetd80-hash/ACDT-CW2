@@ -14,7 +14,21 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
 
-import main  # noqa: I001
+# NEW: your code is now a package. We import the screener module as "main"
+# so the rest of this test file can stay the same.
+import alc_breach_screener.screener as main  # noqa: I001
+
+# NEW: inject missing names onto the imported module so existing tests continue to work
+from alc_breach_screener.config import AppConfig, IntelXConfig, EMAIL_REGEX
+
+
+def _is_valid_email(email: str) -> bool:
+    return bool(EMAIL_REGEX.match(email.strip()))
+
+
+main.IntelXConfig = IntelXConfig
+main.AppConfig = AppConfig
+main.is_valid_email = _is_valid_email
 
 
 async def _no_sleep(_: float) -> None:

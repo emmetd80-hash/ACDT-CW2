@@ -2,12 +2,19 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-COPY main.py /app/main.py
+# Copy project files
+COPY alc_breach_screener /app/alc_breach_screener
 COPY config.yml /app/config.yml
 COPY requirements-dev.txt /app/requirements-dev.txt
 
+# Install dependencies
 RUN pip install --no-cache-dir -r /app/requirements-dev.txt
 
+# Default CSV location inside container
 ENV INPUT_EMAIL_CSV=/data/email_list.csv
 
-CMD ["python", "main.py"]
+# Ensure output folder exists
+RUN mkdir -p /app/output
+
+# Run package entrypoint
+CMD ["python", "-m", "alc_breach_screener"]

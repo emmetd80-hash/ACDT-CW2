@@ -2,7 +2,7 @@
 ## **Problem / Purpose**
 
 The ALC Breach Screener is a Python application that checks a list of email addresses against the IntelX (Intelligence X) API to determine if those emails appear in known breach or leaked files.
-The tool is designed Antrim Logistics Company (ALC), that screens new and existing clients for potential exposure in known data breaches and to help inform mitigation actions.
+The tool is designed for Antrim Logistics Company (ALC), that screens new and existing clients for potential exposure in known data breaches and to help inform mitigation actions.
 
 ## **What the Application Does**
 
@@ -34,7 +34,7 @@ This enables:
 When the program runs successfully, it generates the following files
 
 1. Results CSV  
-File: "output_result1.csv"  
+File: "output/output_result1.csv"
 
 Contains one row per email with the following columns:
 
@@ -44,7 +44,7 @@ Contains one row per email with the following columns:
 - breached_sources (semicolon-separated list of extracted source domains)
 
 2. Analyst Summary CSV
-File: "breach_summary.csv"
+File: "output/breach_summary.csv"
 
 Contains screening metrics followed by a ranked table of breach sources.
 
@@ -55,20 +55,25 @@ Contains screening metrics followed by a ranked table of breach sources.
 - top_breached_sources with count
 
 3. Chart Output
-File: "breach_summary_png"
+File: "output/breach_summary.png"
 
 Visual representation of the most common breach sources identified during screening.
+
+All generated files are written into an "output/" directory.
+If the directory does not exist, the application will create it automatically.
 
 ## **Example Results**
 
 1. Results CSV
-Example rows from output_result1.csv:
+Example rows from `output/output_result1.csv`:
 
-    | email_address     | breached | breached_sources    |
-    | ----------------- | -------- | ------------------- |
-    | user_001@redacted | True     | example.com;foo.com |
-    | user_002@redacted | False    |                     |
-    | user_003@redacted | True     | example.com         |
+    | email_address        | breached | breach_media_summary                              | breached_sources |
+    |----------------------|----------|---------------------------------------------------|------------------|
+    | user_001@redacted    | TRUE     | 32 Text Files, 5 CSV Files, 3 Database Files      | redacted-source1.txt;redacted-source2.txt;redacted-db.sql;redacted-leak.tar;example.com;foo.com;archive1.rar;dump1.tar |
+    | user_002@redacted    | TRUE     | 8 Text Files, 6 CSV Files, 1 Database File        | fitness-app.com;verification-data.txt;redacted.tsv;cloud-storage.rar;example.net |
+    | user_003@redacted    | TRUE     | 8 Text Files, 2 Database Files                    | dataset1.txt;archive-old.zip;leakfile.tar;example.org |
+    | user_004@redacted    | TRUE     | 2 CSV Files                                       | music-platform.com |
+    | user_005@redacted    | TRUE     | 38 Text Files, 2 CSV Files                        | dump1.rar;collection.tar;logs.txt;archive.zip;redacted-data.txt;example.com |
 
 2. Analyst Summary CSV
 Example contents of breach_summary.csv: 
@@ -87,15 +92,16 @@ Example contents of breach_summary.csv:
     | foo.com     | 1     |
 
 
-
 3. Breach Source Chart
-The application generates a bar chart (breach_summary.png) showing the most common breaches across the screened email CSV.
 
-* The x-axis represents breach source files or domains
+The application generates a donut-style chart (breach_summary.png) showing the distribution of the most common breach sources.
 
-* The y-axis shows the number of affected email addresses
+* Each segment represents a breach source file or domain  
+* Segment size and percentage indicate its share of total breaches  
+* The legend lists the top sources  
+* The centre displays total emails processed, breached emails, and exposure rate  
 
-* The chart enables rapid identification of high-risk breach sources
+This visual provides a quick summary of breach exposure and highlights dominant sources.
 
 ## **Data Protection Notice**
 
@@ -104,14 +110,18 @@ No real client email addresses or personal identifiers are included in this docu
 
 ## **Project Structure** 
 
-Layout:
-    
-    - main.py (async application logic and IntelX client)
-    - config.yml (Application configuration)
-    - email_list.csv (Input file)
-    - tests/ - (Unit tests "test_main.py")
-    - Dockerfile - (Docker definition)
-    - README.md (Documentation)
+- alc_breach_screener/
+    - __main__.py (entry point for module execution)
+    - screener.py (core async screening workflow)
+    - intelx_client.py (IntelX API communication client)
+    - config.py (configuration models + loader)
+    - utils.py (shared helpers, logging, CSV + chart output)
+- config.yml (Application configuration)
+- email_list.csv (Input file)
+- output/ (generated results folder – created automatically)
+- tests/ (unit tests including async tests)
+- Dockerfile (Docker definition)
+- README.md (Documentation)
 
 ## **Requirements**
 
@@ -161,10 +171,10 @@ The application also uses environment variables for file path:
 
 After entering the required environment variables and changing to the projects directory:
 
-    - python main.py
+    - python -m alc_breach_screener
 
 The application internally runs an asynchronous event loop to process multiple email checks efficiently.
-On completion, if successful the output CSV files and chart will be written to the projects location.
+On completion, if successful all output CSV files and charts will be written to the automatically created "output/" folder inside the project directory.
 
 # **Docker Usage**
 
@@ -177,10 +187,10 @@ On completion, if successful the output CSV files and chart will be written to t
     - docker run --rm `
     -e INTELX_API_KEY="18211fcd-cb24-4343-b2b0-a2d81868adfe" `
     -e INPUT_EMAIL_CSV="/data/email_list.csv" `
-    -v "C:\Users\Emmet\OneDrive\Level 6\Cloud\ACDT CW2:/data" `
+    -v "C:\Users\Emmet\OneDrive\Level 6\Cloud\ACDT CW2 Updated:/data" `
     breach-screener
 
-This ensures all input files and generated outputs are accessible on the Host system
+Generated files will appear in the mounted host folder under the "output/" directory.
 
 # **Testing**
 
