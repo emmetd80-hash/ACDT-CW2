@@ -65,7 +65,7 @@ def extract_source(item: Dict[str, Any]) -> Optional[str]:
     if not name:
         return None
 
-    # Remove "[Part X of Y]" 
+    # Remove "[Part X of Y]"
     name = re.sub(r"\s*\[Part\s+\d+\s+of\s+\d+\]\s*$", "", name, flags=re.IGNORECASE)
 
     # URL handling
