@@ -277,24 +277,24 @@ def test_correlation_id_for_is_deterministic_and_12_chars():
     assert len(cid1) == 12
 
 
-def test_extract_source_domain_from_url():
+def test_extract_source_from_url():
     item = {"name": "https://sub.example.com/path/to/page"}
-    assert main.extract_source_domain(item) == "sub.example.com"
+    assert main.extract_source(item) == "sub.example.com"
 
 
-def test_extract_source_domain_from_text_domain():
+def test_extract_source_from_text():
     item = {"name": "Leak posted on example.org in a forum"}
-    assert main.extract_source_domain(item) == "example.org"
+    assert main.extract_source(item) == "example.org"
 
 
-def test_extract_source_domain_returns_none_when_missing_name():
-    assert main.extract_source_domain({}) is None
-    assert main.extract_source_domain({"name": ""}) is None
+def test_extract_source_returns_none_when_missing_name():
+    assert main.extract_source({}) is None
+    assert main.extract_source({"name": ""}) is None
 
 
-def test_extract_source_domain_bad_url_returns_none():
+def test_extract_source_bad_url_returns_none():
     item = {"name": "https://"}
-    assert main.extract_source_domain(item) is None
+    assert main.extract_source(item) is None
 
 
 def test_read_emails_from_csv_strips_and_keeps_order(tmp_path: Path):

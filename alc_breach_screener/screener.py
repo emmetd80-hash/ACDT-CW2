@@ -53,17 +53,22 @@ from .utils import (
 )
 
 
-def extract_source_domain(item: Dict[str, Any]) -> Optional[str]:
+def extract_source(item: Dict[str, Any]) -> Optional[str]:
     """
-    Attempt to extract a source domain from an IntelX record item.
+    Attempt to extract a useful source label from an IntelX record item.
 
-    - If the record name is a URL, parse hostname.
-    - Otherwise attempt to extract a domain token from text.
+    - If the record name is a URL, return hostname.
+    - If it contains a domain-like token, return that.
+    - Otherwise return cleaned record name (without [Part x of y]).
     """
     name = str(item.get("name", "")).strip()
     if not name:
         return None
 
+    # Remove "[Part X of Y]" 
+    name = re.sub(r"\s*\[Part\s+\d+\s+of\s+\d+\]\s*$", "", name, flags=re.IGNORECASE)
+
+    # URL handling
     if name.startswith(("http://", "https://")):
         try:
             host = urlparse(name).hostname
@@ -71,8 +76,11 @@ def extract_source_domain(item: Dict[str, Any]) -> Optional[str]:
         except Exception:
             return None
 
-    m = re.search(r"([A-Za-z0-9-]+\.[A-Za-z]{2,})", name)
-    return m.group(1).lower() if m else None
+    m = re.search(r"\b([A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+)\b", name)
+    if m:
+        return m.group(1).lower()
+
+    return name.lower()
 
 
 async def screen_email(client: IntelXClient, email: str, logger: logging.Logger) -> ScreenResult:
@@ -131,7 +139,7 @@ async def screen_email(client: IntelXClient, email: str, logger: logging.Logger)
             if not isinstance(item, dict):
                 continue
 
-            dom = extract_source_domain(item)
+            dom = extract_source(item)
             if dom:
                 sources.append(dom)
 

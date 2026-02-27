@@ -33,8 +33,7 @@ This enables:
 
 When the program runs successfully, it generates the following files
 
-1. Results CSV  
-File: "output/output_result1.csv"
+## 1. Results CSV File: "output/output_result1.csv"
 
 Contains one row per email with the following columns:
 
@@ -43,8 +42,7 @@ Contains one row per email with the following columns:
 - breach_media_summary (human-readable summary of file/media types returned by IntelX)  
 - breached_sources (semicolon-separated list of extracted source domains)
 
-2. Analyst Summary CSV
-File: "output/breach_summary.csv"
+## 2. Analyst Summary CSV File: "output/breach_summary.csv"
 
 Contains screening metrics followed by a ranked table of breach sources.
 
@@ -54,8 +52,7 @@ Contains screening metrics followed by a ranked table of breach sources.
 - breached_sources (semicolon-separated list of extracted source domains)
 - top_breached_sources with count
 
-3. Chart Output
-File: "output/breach_summary.png"
+## 3. Chart Output File: "output/breach_summary.png"
 
 Visual representation of the most common breach sources identified during screening.
 
@@ -102,6 +99,10 @@ The application generates a donut-style chart (breach_summary.png) showing the d
 * The centre displays total emails processed, breached emails, and exposure rate  
 
 This visual provides a quick summary of breach exposure and highlights dominant sources.
+
+Example:
+
+![alt text](breach_summary.png)
 
 ## **Data Protection Notice**
 
