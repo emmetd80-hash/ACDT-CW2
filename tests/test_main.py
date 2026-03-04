@@ -25,6 +25,7 @@ from alc_breach_screener.config import AppConfig, IntelXConfig, EMAIL_REGEX
 def _is_valid_email(email: str) -> bool:
     return bool(EMAIL_REGEX.match(email.strip()))
 
+
 main.IntelXConfig = IntelXConfig
 main.AppConfig = AppConfig
 main.is_valid_email = _is_valid_email
