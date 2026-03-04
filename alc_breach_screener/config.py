@@ -41,7 +41,7 @@ class IntelXConfig:
     Loaded from config.yml under the `intelx:` section.
 
     Fields include:
-    - base_url: IntelX API base (free tier typically https://free.intelx.io)
+    - base_url: IntelX API
     - api_key_env: environment variable name that holds the API key
     - requests_per_second: global request pacing across all async tasks
     - timeouts: connect/read values passed to httpx

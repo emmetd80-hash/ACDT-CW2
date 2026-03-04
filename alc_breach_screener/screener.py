@@ -172,6 +172,16 @@ def _default_config_path() -> Path:
       python -m alc_breach_screener
     will load <repo_root>/config.yml.
     """
+    env_path = os.getenv("CONFIG_PATH")
+    if env_path:
+        return Path(env_path)
+
+    # 2) Package directory (recommended default for your structure)
+    pkg_path = Path(__file__).resolve().parent / "config.yml"
+    if pkg_path.exists():
+        return pkg_path
+
+    # 3) Repo root / current working directory fallback
     return Path.cwd() / "config.yml"
 
 
