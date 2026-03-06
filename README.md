@@ -102,7 +102,7 @@ This visual provides a quick summary of breach exposure and highlights dominant 
 
 Example:
 
-![alt text](breach_summary.png)
+<img width="500" height="500" alt="breach_summary" src="https://github.com/user-attachments/assets/37c462ea-c616-4e30-8b4c-623aef5725d0" />
 
 ## **Data Protection Notice**
 
@@ -244,4 +244,5 @@ This application is intended for educational and prototype purposes only.
 
 Emmet Devine
 Advanced Cloud Development Technologies
+
 ACDT_CW_II_25-26
