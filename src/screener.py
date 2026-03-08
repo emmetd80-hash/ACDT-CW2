@@ -257,11 +257,11 @@ async def run_async() -> int:
         async with sem:
             try:
                 return await screen_email(client, email, logger)
-            
+
             except PermissionError as exc:
                 log_kv(logger, logging.ERROR, "unauthorised", error=str(exc))
                 raise
-            
+
             except Exception as exc:
                 cid = correlation_id_for(email)
                 log_kv(logger, logging.ERROR, "screen_failed", cid=cid, email=email, error=str(exc))

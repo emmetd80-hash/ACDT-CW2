@@ -229,7 +229,7 @@ class IntelXClient:
 
         if resp.status_code == 401:
             raise PermissionError("Unauthorized")
-        
+
         if resp.status_code != 200:
             raise RuntimeError(f"Search failed: HTTP {resp.status_code} {resp.text}")
 
@@ -268,7 +268,7 @@ class IntelXClient:
         )
         if resp.status_code == 401:
             raise PermissionError("Unauthorized")
-        
+
         if resp.status_code != 200:
             raise RuntimeError(f"Result fetch failed: HTTP {resp.status_code} {resp.text}")
         return resp.json()
