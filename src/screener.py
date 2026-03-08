@@ -257,6 +257,11 @@ async def run_async() -> int:
         async with sem:
             try:
                 return await screen_email(client, email, logger)
+            
+            except PermissionError as exc:
+                log_kv(logger, logging.ERROR, "unauthorised", error=str(exc))
+                raise
+            
             except Exception as exc:
                 cid = correlation_id_for(email)
                 log_kv(logger, logging.ERROR, "screen_failed", cid=cid, email=email, error=str(exc))
@@ -270,6 +275,10 @@ async def run_async() -> int:
     try:
         # gather preserves order of the input list
         results = await asyncio.gather(*(guarded_screen(e) for e in emails))
+
+    except PermissionError:
+        return 2
+
     finally:
         await client.aclose()
 

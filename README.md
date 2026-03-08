@@ -111,13 +111,13 @@ No real client email addresses or personal identifiers are included in this docu
 
 ## **Project Structure** 
 
-- alc_breach_screener/
+- src/
     - __main__.py (entry point for module execution)
     - screener.py (core async screening workflow)
     - intelx_client.py (IntelX API communication client)
     - config.py (configuration models + loader)
     - utils.py (shared helpers, logging, CSV + chart output)
-- config.yml (Application configuration)
+    - config.yml (Application configuration)
 - email_list.csv (Input file)
 - output/ (generated results folder – created automatically)
 - tests/ (unit tests including async tests)
@@ -172,7 +172,7 @@ The application also uses environment variables for file path:
 
 After entering the required environment variables and changing to the projects directory:
 
-    - python -m alc_breach_screener
+    - python -m src
 
 The application internally runs an asynchronous event loop to process multiple email checks efficiently.
 On completion, if successful all output CSV files and charts will be written to the automatically created "output/" folder inside the project directory.
@@ -186,9 +186,9 @@ On completion, if successful all output CSV files and charts will be written to 
 ## **Run the Container**
 
     - docker run --rm `
-    -e INTELX_API_KEY="18211fcd-cb24-4343-b2b0-a2d81868adfe" `
+    -e INTELX_API_KEY="API_KEY" `
     -e INPUT_EMAIL_CSV="/data/email_list.csv" `
-    -v "C:\Users\Emmet\OneDrive\Level 6\Cloud\ACDT CW2 Updated:/data" `
+    -v "C:\Users\Emmet\OneDrive\Level 6\Cloud\ACDT CW2 Project:/data" `
     breach-screener
 
 Generated files will appear in the mounted host folder under the "output/" directory.

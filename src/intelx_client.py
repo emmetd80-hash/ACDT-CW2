@@ -227,6 +227,9 @@ class IntelXClient:
             correlation_id=correlation_id,
         )
 
+        if resp.status_code == 401:
+            raise PermissionError("Unauthorized")
+        
         if resp.status_code != 200:
             raise RuntimeError(f"Search failed: HTTP {resp.status_code} {resp.text}")
 
@@ -263,6 +266,9 @@ class IntelXClient:
             params={"id": search_id, "limit": limit, "offset": offset},
             correlation_id=correlation_id,
         )
+        if resp.status_code == 401:
+            raise PermissionError("Unauthorized")
+        
         if resp.status_code != 200:
             raise RuntimeError(f"Result fetch failed: HTTP {resp.status_code} {resp.text}")
         return resp.json()
