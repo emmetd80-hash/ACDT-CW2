@@ -16,10 +16,10 @@ sys.path.insert(0, str(REPO_ROOT))
 
 # NEW: your code is now a package. We import the screener module as "main"
 # so the rest of this test file can stay the same.
-import alc_breach_screener.screener as main  # noqa: I001
+import src.screener as main  # noqa: I001
 
 # NEW: inject missing names onto the imported module so existing tests continue to work
-from alc_breach_screener.config import AppConfig, IntelXConfig, EMAIL_REGEX
+from src.config import AppConfig, IntelXConfig, EMAIL_REGEX
 
 
 def _is_valid_email(email: str) -> bool:
