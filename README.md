@@ -122,6 +122,7 @@ No real client email addresses or personal identifiers are included in this docu
 - output/ (generated results folder – created automatically)
 - tests/ (unit tests including async tests)
 - Dockerfile (Docker definition)
+- pyproject.toml (tool configuration such as Black formatting)
 - README.md (Documentation)
 
 ## **Requirements**
@@ -244,4 +245,5 @@ This application is intended for educational and prototype purposes only.
 
 Emmet Devine
 Advanced Cloud Development Technologies
+
 ACDT_CW_II_25-26
